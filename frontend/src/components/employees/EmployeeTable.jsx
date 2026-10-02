@@ -1,0 +1,76 @@
+import StatusBadge from '../StatusBadge';
+
+function toneForStatus(status) {
+  const s = (status || '').toUpperCase();
+  if (s === 'ACTIVE') return 'ok';
+  if (s === 'ON_LEAVE' || s === 'ON LEAVE' || s === 'INACTIVE') return 'warn';
+  return 'neutral';
+}
+
+function summarizeDict(value) {
+  if (!value || typeof value !== 'object') return '—';
+  const keys = Object.keys(value);
+  if (keys.length === 0) return '—';
+  return keys.slice(0, 3).join(', ') + (keys.length > 3 ? ` +${keys.length - 3}` : '');
+}
+
+export default function EmployeeTable({ employees, loading, onEdit, onDelete, deletingId }) {
+  if (loading) return <p className="muted">Loading employees…</p>;
+  if (employees.length === 0) {
+    return (
+      <div className="empty-state">
+        <p className="empty-title">No employees registered yet.</p>
+        <p className="muted">Add your first employee to build the workforce registry.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="table-wrap">
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>ID</th>
+            <th>Role</th>
+            <th>Shift</th>
+            <th>Status</th>
+            <th>Availability</th>
+            <th>Skills</th>
+            <th aria-label="Actions" />
+          </tr>
+        </thead>
+        <tbody>
+          {employees.map((e) => (
+            <tr key={e.id}>
+              <td className="cell-strong">{e.name}</td>
+              <td className="cell-mono">{String(e.id).slice(0, 8)}</td>
+              <td>{e.role}</td>
+              <td>{e.shift || '—'}</td>
+              <td>
+                <StatusBadge tone={toneForStatus(e.status)}>{e.status || '—'}</StatusBadge>
+              </td>
+              <td>{e.availability || '—'}</td>
+              <td className="cell-truncate" title={JSON.stringify(e.skills || {})}>
+                {summarizeDict(e.skills)}
+              </td>
+              <td className="cell-actions">
+                <button type="button" className="btn-small" onClick={() => onEdit(e)}>
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="btn-small btn-danger"
+                  disabled={deletingId === e.id}
+                  onClick={() => onDelete(e)}
+                >
+                  {deletingId === e.id ? 'Deleting…' : 'Delete'}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}

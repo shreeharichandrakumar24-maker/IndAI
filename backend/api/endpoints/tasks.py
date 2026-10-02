@@ -9,9 +9,25 @@ from backend.schemas.task import TaskCreate, TaskUpdate, TaskResponse
 
 router = APIRouter()
 
+# Permissive superset covering every status the app has ever used
+# (PENDING default, IN_PROGRESS active, DONE/COMPLETED closed, CANCELLED).
+# Blocks garbage strings while never breaking existing flows.
+TASK_STATUSES = {"PENDING", "IN_PROGRESS", "DONE", "COMPLETED", "CANCELLED"}
+
+
+def _check_status(status, db):
+    s = (status or "PENDING").upper()
+    if s not in TASK_STATUSES:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail=f"Unknown task status '{status}'. Use one of {sorted(TASK_STATUSES)}.")
+    return s
+
+
 @router.post("", response_model=TaskResponse)
 def create_task(task: TaskCreate, db: Session = Depends(get_db)):
-    db_task = Task(**task.model_dump())
+    data = task.model_dump()
+    data["status"] = _check_status(data.get("status"), db)
+    db_task = Task(**data)
     db.add(db_task)
     db.commit()
     db.refresh(db_task)
@@ -47,6 +63,8 @@ def update_task(task_id: UUID, task: TaskUpdate, db: Session = Depends(get_db)):
     if not db_task:
         raise HTTPException(status_code=404, detail="Task not found")
     update_data = task.model_dump(exclude_unset=True)
+    if "status" in update_data:
+        update_data["status"] = _check_status(update_data["status"], db)
     for key, value in update_data.items():
         setattr(db_task, key, value)
     db.commit()

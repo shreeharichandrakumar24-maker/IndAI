@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import health, employees, machines, orders, tasks, production, telemetry, maintenance, incidents
+from .endpoints import health, employees, machines, orders, tasks, production, telemetry, maintenance, incidents, profile, imports, ai, memory, users, notifications, reports, plans, smart_split, assistant
 
 api_router = APIRouter()
 
@@ -12,3 +12,15 @@ api_router.include_router(production.router, prefix="/production", tags=["produc
 api_router.include_router(telemetry.router, prefix="/telemetry", tags=["telemetry"])
 api_router.include_router(maintenance.router, prefix="/maintenance", tags=["maintenance"])
 api_router.include_router(incidents.router, prefix="/incidents", tags=["incidents"])
+api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
+api_router.include_router(imports.router, prefix="/import", tags=["import"])
+api_router.include_router(ai.router, prefix="/ai", tags=["ai"])
+api_router.include_router(memory.router, prefix="/memory", tags=["memory"])
+api_router.include_router(users.router, prefix="/users", tags=["users"])
+api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
+api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(plans.plans, prefix="/plans", tags=["plans"])
+api_router.include_router(plans.assignments, prefix="/assignments", tags=["assignments"])
+api_router.include_router(plans.tokens, prefix="/push-tokens", tags=["push"])
+api_router.include_router(smart_split.router, prefix="/ai", tags=["smart-split"])
+api_router.include_router(assistant.router, prefix="/ai/assistant", tags=["assistant"])

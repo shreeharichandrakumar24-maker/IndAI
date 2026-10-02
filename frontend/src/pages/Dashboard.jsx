@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '../services/api';
 import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
+import BossView from './BossView';
+import RefreshBar from '../components/RefreshBar';
+import useAutoRefresh from '../hooks/useAutoRefresh';
 
 function valueOf(result) {
   return result.status === 'fulfilled' ? result.value : null;
@@ -34,6 +37,7 @@ function toneForOrderStatus(status) {
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState([]);
+  const [bossView, setBossView] = useState(true); // plain-language first
   const [data, setData] = useState({
     employees: [],
     machines: [],
@@ -43,38 +47,37 @@ export default function Dashboard() {
     incidents: [],
   });
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      // allSettled: one slow/failing endpoint must not crash the dashboard.
-      const [employees, machines, orders, tasks, production, incidents] =
-        await Promise.allSettled([
-          api.employees(),
-          api.machines(),
-          api.orders(),
-          api.tasks(),
-          api.production(),
-          api.incidents(),
-        ]);
-      if (cancelled) return;
-      const names = ['employees', 'machines', 'orders', 'tasks', 'production', 'incidents'];
-      const results = [employees, machines, orders, tasks, production, incidents];
-      setFailed(names.filter((_, i) => results[i].status === 'rejected'));
-      setData({
-        employees: valueOf(employees) || [],
-        machines: valueOf(machines) || [],
-        orders: valueOf(orders) || [],
-        tasks: valueOf(tasks) || [],
-        production: valueOf(production) || [],
-        incidents: valueOf(incidents) || [],
-      });
-      setLoading(false);
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
+  const load = useCallback(async (quiet = false) => {
+    // allSettled: one slow/failing endpoint must not crash the dashboard.
+    if (!quiet) setLoading(true);
+    const [employees, machines, orders, tasks, production, incidents] =
+      await Promise.allSettled([
+        api.employees(),
+        api.machines(),
+        api.orders(),
+        api.tasks(),
+        api.production(),
+        api.incidents(),
+      ]);
+    const names = ['employees', 'machines', 'orders', 'tasks', 'production', 'incidents'];
+    const results = [employees, machines, orders, tasks, production, incidents];
+    setFailed(names.filter((_, i) => results[i].status === 'rejected'));
+    setData({
+      employees: valueOf(employees) || [],
+      machines: valueOf(machines) || [],
+      orders: valueOf(orders) || [],
+      tasks: valueOf(tasks) || [],
+      production: valueOf(production) || [],
+      incidents: valueOf(incidents) || [],
+    });
+    if (!quiet) setLoading(false);
   }, []);
+
+  const refresher = useAutoRefresh(load);
+
+  useEffect(() => {
+    load(false);
+  }, [load]);
 
   const { employees, machines, orders, tasks, production, incidents } = data;
 
@@ -121,12 +124,25 @@ export default function Dashboard() {
 
   return (
     <div className="page">
+      <RefreshBar auto={refresher.auto} onAuto={refresher.setAuto} onReload={refresher.refreshNow} refreshing={refresher.refreshing} lastRefresh={refresher.lastRefresh} />
+      <div className="page-head" style={{ marginBottom: 12 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>{bossView ? 'How is my factory doing?' : 'Command Center'}</h2>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button type="button" className={bossView ? 'btn-primary' : 'btn-secondary'} onClick={() => setBossView(true)}>Boss view</button>
+          <button type="button" className={!bossView ? 'btn-primary' : 'btn-secondary'} onClick={() => setBossView(false)}>Admin view</button>
+        </div>
+      </div>
       {failed.length > 0 && !loading && (
         <div className="alert-banner" role="alert">
           Could not reach: {failed.join(', ')}. Showing available data — retry by reloading the page.
         </div>
       )}
-
+      {bossView ? (
+        <BossView orders={orders} production={production} incidents={incidents} machines={machines} loading={loading} />
+      ) : (
+      <>
       {/* KPI strip — live counts from existing list endpoints */}
       <section className="stat-grid" aria-label="Key figures">
         <StatCard label="Active Orders" value={activeOrders.length} sub={`${orders.length} total`} loading={loading} />
@@ -278,6 +294,8 @@ export default function Dashboard() {
           )}
         </section>
       </div>
+      </>
+      )}
     </div>
   );
 }

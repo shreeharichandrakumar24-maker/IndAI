@@ -1,5 +1,9 @@
 # IndAI IoT Simulator
 
+> **Superseded for daily use (Phase 4).** The main app now has a built-in,
+> manager-gated **Simulator** page with the same seed + transmit + abnormal
+> pinning. This standalone app (port 5174) is kept for reference only.
+
 React + Vite web app that simulates a factory floor and sends machine
 telemetry to the IndAI FastAPI backend.
 

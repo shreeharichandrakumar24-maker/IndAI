@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text
+from sqlalchemy import Column, String, Integer, Float, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -167,6 +167,17 @@ class FactoryMemory(Base):
     order = relationship("Order", back_populates="factory_memory")
     task = relationship("Task", back_populates="factory_memory")
 
+class FactoryProfile(Base):
+    __tablename__ = "factory_profile"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    industry = Column(String(255))
+    status = Column(String(50), default="DRAFT")
+    answers = Column(JSONB)
+    profile = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class AIRecommendation(Base):
     __tablename__ = "ai_recommendations"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -177,5 +188,61 @@ class AIRecommendation(Base):
     reason = Column(Text)
     confidence = Column(Float)
     status = Column(String(50), default="PENDING")
+    params = Column(JSONB, nullable=True)  # assistant action params (migration 005); may be absent in old DBs
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class AppUser(Base):
+    __tablename__ = "app_users"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    supabase_uid = Column(Text, unique=True, nullable=False)
+    email = Column(String(255))
+    name = Column(String(255))
+    role = Column(String(50), default="OPERATOR")
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"))
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"))
+    title = Column(String(255), nullable=False)
+    body = Column(Text)
+    link = Column(String(255))
+    kind = Column(String(100))
+    is_read = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class WorkPlan(Base):
+    __tablename__ = "work_plans"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    title = Column(String(255), nullable=False)
+    description = Column(Text)
+    payload = Column(JSONB)
+    status = Column(String(50), default="DRAFT")
+    created_by = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="SET NULL"))
+    approved_by = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="SET NULL"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+class PlanAssignment(Base):
+    __tablename__ = "plan_assignments"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("work_plans.id", ondelete="CASCADE"))
+    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"))
+    employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"))
+    machine_id = Column(UUID(as_uuid=True), ForeignKey("machines.id", ondelete="SET NULL"))
+    status = Column(String(50), default="UNASSIGNED")
+    notified_at = Column(DateTime(timezone=True))
+    responded_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class FcmToken(Base):
+    __tablename__ = "fcm_tokens"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="CASCADE"))
+    token = Column(Text, unique=True, nullable=False)
+    platform = Column(String(50))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

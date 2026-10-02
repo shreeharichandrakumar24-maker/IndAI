@@ -1,6 +1,7 @@
 import { NAV_ITEMS } from '../config/nav';
 
-export default function Sidebar({ active, onNavigate }) {
+export default function Sidebar({ active, onNavigate, role }) {
+  const items = NAV_ITEMS.filter((n) => !n.roles || !role || n.roles.includes(role));
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -11,7 +12,7 @@ export default function Sidebar({ active, onNavigate }) {
         </span>
       </div>
       <nav className="nav">
-        {NAV_ITEMS.map((item) => (
+        {items.map((item) => (
           <button
             key={item.id}
             type="button"

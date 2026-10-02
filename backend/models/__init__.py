@@ -8,5 +8,11 @@ from .models import (
     Maintenance,
     Incident,
     FactoryMemory,
-    AIRecommendation
+    AIRecommendation,
+    FactoryProfile,
+    AppUser,
+    Notification,
+    WorkPlan,
+    PlanAssignment,
+    FcmToken
 )

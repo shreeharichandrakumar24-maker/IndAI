@@ -1,0 +1,5 @@
+Order #,Client,Item,Qty,Prio,Due,Progress,State
+ORD-DEMO-001,Acme Corp,Milled brackets,500,NORMAL,2026-12-01T00:00:00,0.1,PENDING
+ORD-DEMO-002,Globex,Shafts,200,HIGH,2026-11-15T00:00:00,0.0,PENDING
+ORD-DEMO-001,Acme Corp,Milled brackets,500,NORMAL,2026-12-01T00:00:00,0.1,PENDING
+BAD-ROW,,Broken Widget,not_a_qty,,not_a_date,,

@@ -21,7 +21,7 @@ const COPY = {
   },
   iot: {
     title: 'IoT Monitoring',
-    text: 'Live telemetry from the factory floor. The standalone IoT simulator (port 5174) already streams to FastAPI; the integrated monitoring view arrives in the next phase.',
+    text: 'Live telemetry from the factory floor. See the IoT Monitoring page; demo traffic comes from the built-in Simulator page.',
   },
   ai: {
     title: 'AI Assistant',
