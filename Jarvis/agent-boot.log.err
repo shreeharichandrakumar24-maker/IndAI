@@ -1,0 +1,2 @@
+dev mode is deprecated and will be removed in a future release; use `lk agent dev` instead (https://docs.livekit.io/reference/developer-tools/livekit-cli/#setup)
+in-process auto-reload has been removed from the Python CLI; use `lk agent dev` for hot-reload
