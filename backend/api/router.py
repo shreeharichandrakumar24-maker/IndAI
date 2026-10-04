@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from .endpoints import health, employees, machines, orders, tasks, production, telemetry, maintenance, incidents, profile, imports, ai, memory, users, notifications, reports, plans, smart_split, assistant
+from .endpoints import health, employees, machines, orders, tasks, production, telemetry, maintenance, incidents, profile, imports, ai, memory, users, notifications, reports, plans, smart_split, assistant, worker_auth, allocation, voice, worker, resolve, commands
 
 api_router = APIRouter()
 
@@ -24,3 +24,9 @@ api_router.include_router(plans.assignments, prefix="/assignments", tags=["assig
 api_router.include_router(plans.tokens, prefix="/push-tokens", tags=["push"])
 api_router.include_router(smart_split.router, prefix="/ai", tags=["smart-split"])
 api_router.include_router(assistant.router, prefix="/ai/assistant", tags=["assistant"])
+api_router.include_router(worker_auth.router, prefix="/worker-auth", tags=["worker-auth"])
+api_router.include_router(allocation.router, prefix="/allocation", tags=["allocation"])
+api_router.include_router(voice.router, prefix="/voice", tags=["voice"])
+api_router.include_router(worker.router, prefix="/worker", tags=["worker"])
+api_router.include_router(resolve.router, prefix="/resolve", tags=["resolve"])
+api_router.include_router(commands.router, prefix="/ai/commands", tags=["commands"])

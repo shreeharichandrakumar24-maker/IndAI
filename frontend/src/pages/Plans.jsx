@@ -4,6 +4,8 @@ import RefreshBar from '../components/RefreshBar';
 import useAutoRefresh from '../hooks/useAutoRefresh';
 import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
+import ProgressTracker from '../components/plans/ProgressTracker';
+import LivePlan from '../components/plans/LivePlan';
 
 function toneForPlan(s) {
   if (s === 'DISPATCHED' || s === 'DONE') return 'ok';
@@ -19,7 +21,9 @@ const EMPTY_ITEM = { task_name: '', required_skill: '', machine_type: '', priori
 
 // Manager console for work plans (Phase 7 + F6): draft items -> approve
 // (creates tasks) -> AI-suggest pairings -> Apply per item -> dispatch.
-export default function Plans() {
+// Progress tracker + Live plan tabs join live task state on every read.
+export default function Plans({ onNavigate }) {
+  const [tab, setTab] = useState('plans');
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -28,6 +32,21 @@ export default function Plans() {
   const [suggestions, setSuggestions] = useState(null);
   const [busy, setBusy] = useState('');
   const [actionMsg, setActionMsg] = useState(null);
+
+  // progress tracker state
+  const [trackPlanId, setTrackPlanId] = useState('');
+  const [progress, setProgress] = useState(null);
+  const [progressLoading, setProgressLoading] = useState(false);
+  const [progressError, setProgressError] = useState('');
+  const [workerFilter, setWorkerFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [overdueOnly, setOverdueOnly] = useState(false);
+
+  // live plan state
+  const [live, setLive] = useState(null);
+  const [liveLoading, setLiveLoading] = useState(false);
+  const [liveError, setLiveError] = useState('');
+  const [attaching, setAttaching] = useState('');
 
   // create form
   const [title, setTitle] = useState('');
@@ -114,6 +133,65 @@ export default function Plans() {
 
   const refresher = useAutoRefresh(load);
 
+  const loadProgress = useCallback(async (quiet = false) => {
+    if (!trackPlanId) return;
+    if (!quiet) setProgressLoading(true);
+    setProgressError('');
+    try {
+      setProgress(await api.planProgress(trackPlanId));
+    } catch (err) {
+      setProgressError(err.message || 'Failed to load progress');
+    } finally {
+      if (!quiet) setProgressLoading(false);
+    }
+  }, [trackPlanId]);
+
+  const loadLive = useCallback(async (quiet = false) => {
+    if (!quiet) setLiveLoading(true);
+    setLiveError('');
+    try {
+      setLive(await api.livePlans());
+    } catch (err) {
+      setLiveError(err.message || 'Failed to load live plan');
+    } finally {
+      if (!quiet) setLiveLoading(false);
+    }
+  }, []);
+
+  useAutoRefresh(loadProgress, { paused: tab !== 'progress' || !trackPlanId });
+  useAutoRefresh(loadLive, { paused: tab !== 'live' });
+
+  useEffect(() => {
+    if (trackPlanId) loadProgress();
+  }, [trackPlanId, loadProgress]);
+
+  useEffect(() => {
+    if (tab === 'live') loadLive();
+  }, [tab, loadLive]);
+
+  // Default the tracker to the newest non-draft plan.
+  useEffect(() => {
+    if (!trackPlanId) {
+      const cand = plans.find((p) => p.status !== 'DRAFT');
+      if (cand) setTrackPlanId(cand.id);
+    }
+  }, [plans, trackPlanId]);
+
+  const handleAttach = async (planId, taskId) => {
+    setAttaching(taskId);
+    setError('');
+    try {
+      await api.attachPlanItem(planId, taskId);
+      setActionMsg('Task added to plan.');
+      await loadLive(true);
+      if (trackPlanId === planId) await loadProgress(true);
+    } catch (err) {
+      setError(err.message || 'Attach failed');
+    } finally {
+      setAttaching('');
+    }
+  };
+
   return (
     <div className="page">
       <RefreshBar auto={refresher.auto} onAuto={refresher.setAuto} onReload={refresher.refreshNow} refreshing={refresher.refreshing} lastRefresh={refresher.lastRefresh} />
@@ -125,6 +203,31 @@ export default function Plans() {
         {suggestions && <StatusBadge tone={toneForSource(suggestions.source)}>{suggestions.source === 'ai' ? 'AI-ranked' : 'Deterministic fallback'}</StatusBadge>}
       </div>
 
+      <div className="split-tabs" role="tablist" aria-label="Work plans views">
+        {[['plans', 'Plans'], ['progress', 'Progress tracker'], ['live', 'Live plan']].map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id}
+            className={`split-tab${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'progress' && (
+        <ProgressTracker data={progress} loading={progressLoading} error={progressError}
+          plans={plans} planId={trackPlanId} onPlan={setTrackPlanId}
+          workerFilter={workerFilter} onWorkerFilter={setWorkerFilter}
+          statusFilter={statusFilter} onStatusFilter={setStatusFilter}
+          overdueOnly={overdueOnly} onOverdueOnly={setOverdueOnly}
+          onNavigate={onNavigate} />
+      )}
+
+      {tab === 'live' && (
+        <LivePlan data={live} loading={liveLoading} error={liveError}
+          plans={plans} onAttach={handleAttach} attaching={attaching} />
+      )}
+
+      {tab === 'plans' && (
+      <>
       <section className="stat-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
         <StatCard label="Plans" value={plans.length} sub={`${drafts} drafts`} loading={loading} />
         <StatCard label="Items open" value={selected ? assignments.length : '—'} sub={selected ? selected.title : 'open a plan'} loading={loading} />
@@ -218,6 +321,8 @@ export default function Plans() {
             </tbody>
           </table>
         </section>
+      )}
+      </>
       )}
     </div>
   );

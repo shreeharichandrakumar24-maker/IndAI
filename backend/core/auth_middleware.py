@@ -4,6 +4,10 @@ One place for the whole access scheme so endpoint files stay untouched:
 
 - Open (no token): /api/health*, POST /api/telemetry (simulator ingest path),
   /, /docs, /openapi.json.
+  - Worker prototype (own HMAC Bearer check, NOT Supabase):
+    exactly POST /api/worker-auth/login is public; every route starting
+    with "/api/worker/" (trailing slash) plus POST /api/worker-auth/change-password
+    skips the Supabase check and relies on get_current_worker.
 - Everything else: valid Supabase Bearer token required (401 otherwise).
 - Roles: MANAGER > OPERATOR > WORKER (see services/auth.py).
   - GET: any authenticated user.
@@ -66,6 +70,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
             or path.startswith("/api/health/")
             or (request.method == "POST" and path.rstrip("/") == "/api/telemetry")
         ):
+            return await call_next(request)
+
+        # Worker prototype auth: public login + own-token routes bypass Supabase.
+        # Precise matches only: exactly POST /api/worker-auth/login public;
+        # routes starting with "/api/worker/" (trailing slash) plus the
+        # change-password route below use get_current_worker instead.
+        if request.method == "POST" and path.rstrip("/") == "/api/worker-auth/login":
+            return await call_next(request)
+        if path.startswith("/api/worker/"):
+            return await call_next(request)
+        if request.method == "POST" and path.rstrip("/") == "/api/worker-auth/change-password":
             return await call_next(request)
 
         if not path.startswith("/api/"):

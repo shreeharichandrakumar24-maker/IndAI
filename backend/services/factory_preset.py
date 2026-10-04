@@ -21,13 +21,16 @@ CNC_PRESET: dict = {
         {"code": "M-008", "name": "M-008 Injection Molding Machine", "machine_type": "Molder", "location": "Bay D - South", "sensors": ["temperature", "vibration", "current", "rpm"]},
     ],
     "thresholds": {
-        "CNC": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 1300.0},
-        "Press": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 1300.0},
-        "Grinder": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 1300.0},
-        "Welder": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 1300.0},
-        "Robot": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 1300.0},
-        "Laser": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 1300.0},
-        "Molder": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 1300.0},
+        # Per-type limits tuned so each canonical machine's NORMAL baseline
+        # stays clean while its "Set Abnormal" values trip at least one rule.
+        # rpm_min 0 disables the rpm check for machines without a spindle.
+        "CNC": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 1100.0},
+        "Press": {"temp_max": 70.0, "vibration_max": 5.0, "current_max": 18.0, "rpm_min": 0.0},
+        "Grinder": {"temp_max": 80.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 2500.0},
+        "Welder": {"temp_max": 90.0, "vibration_max": 5.0, "current_max": 22.0, "rpm_min": 0.0},
+        "Robot": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 800.0},
+        "Laser": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 13.0, "rpm_min": 0.0},
+        "Molder": {"temp_max": 100.0, "vibration_max": 5.0, "current_max": 16.0, "rpm_min": 600.0},
         "_default": {"temp_max": 85.0, "vibration_max": 5.0, "current_max": 10.0, "rpm_min": 1300.0},
     },
     "task_templates": [

@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import { clamp, snap, typeGlyph } from './mapUtils';
 
-const TONE_FILL = { ok: '#22c55e', bad: '#ef4444', stale: '#64748b' };
+const TONE_FILL = { ok: 'var(--map-ok)', bad: 'var(--map-bad)', stale: 'var(--map-stale)' };
 
 // Responsive inline SVG floor plan. Zones as labeled rectangles, machines as
 // draggable nodes (edit mode only; pointer events, snap-to-grid, clamped,
@@ -50,9 +50,11 @@ export default function FactoryMapSvg({
         <g key={z.id}>
           <rect
             x={z.x} y={z.y} width={z.w} height={z.h}
-            fill="none" stroke="var(--border)" strokeWidth={2} strokeDasharray={z.auto ? '8 4' : undefined} rx={8}
+            fill="none" strokeWidth={2} strokeDasharray={z.auto ? '8 4' : undefined} rx={8}
+            className={z.auto ? 'zone-auto' : undefined}
+            style={{ stroke: 'var(--border)' }}
           />
-          <text x={z.x + 10} y={z.y + 22} fill="var(--muted)" fontSize={15} fontWeight={600}>
+          <text x={z.x + 10} y={z.y + 22} fontSize={15} fontWeight={600} style={{ fill: 'var(--muted)' }}>
             {z.name || z.id}{z.auto ? ' (auto)' : ''}
           </text>
         </g>
@@ -69,19 +71,21 @@ export default function FactoryMapSvg({
             onPointerDown={(e) => handlePointerDown(e, n.code)}
           >
             {n.alert && (
-              <circle r={30} fill="none" stroke="#ef4444" strokeWidth={2} opacity={0.8}>
+              <circle r={30} fill="none" strokeWidth={2} opacity={0.8} style={{ stroke: 'var(--map-bad)' }}>
                 <animate attributeName="r" values="24;34;24" dur="2s" repeatCount="indefinite" />
                 <animate attributeName="opacity" values="0.9;0.2;0.9" dur="2s" repeatCount="indefinite" />
               </circle>
             )}
             <circle
               r={20}
-              fill={TONE_FILL[n.tone] || TONE_FILL.stale}
-              stroke={selected ? '#f59e0b' : '#0b1220'}
               strokeWidth={selected ? 4 : 2}
+              style={{
+                fill: TONE_FILL[n.tone] || TONE_FILL.stale,
+                stroke: selected ? 'var(--accent)' : 'var(--map-stroke)',
+              }}
             />
-            <text textAnchor="middle" dy={7} fontSize={18} fill="#0b1220">{typeGlyph(n.machineType)}</text>
-            <text textAnchor="middle" dy={40} fontSize={13} fontWeight={700} fill="var(--text)">{n.code}</text>
+            <text textAnchor="middle" dy={7} fontSize={18} style={{ fill: 'var(--map-glyph)' }}>{typeGlyph(n.machineType)}</text>
+            <text textAnchor="middle" dy={40} fontSize={13} fontWeight={700} style={{ fill: 'var(--text)' }}>{n.code}</text>
             <title>{`${n.code} — ${n.machineName} (${n.stateLabel})`}</title>
           </g>
         );

@@ -1,48 +1,88 @@
 # IndAI worker app (Flutter, Android-first)
 
-Worker companion to the IndAI web console: sign in → **My jobs** (plan
-dispatches matched to you) → Accept → Start → Done. New assignments arrive
-via **FCM push**, with the in-app bell as fallback; the list is cached for
-shop-floor offline use.
+Worker companion to the IndAI web console: **sign in** (prototype
+username + password) → **My Tasks** (your tasks from the backend) → Start →
+progress → Complete / Log output / Report a problem → **Me** (profile +
+availability switch).
 
-The backend (FastAPI) owns all logic: matching, notify, push fan-out.
-This app is a thin client over `GET /api/assignments/mine`,
-`PATCH /api/assignments/{id}`, `POST /api/push-tokens`.
+Architecture: Flutter -> FastAPI -> Supabase. This app never contains
+Supabase URLs/keys/credentials and never calls Supabase directly; every
+screen uses the REST API below. Prototype sign-in - real authentication is
+future work.
 
-## Prereqs
+## Run from "D:\IET project\IndAI"
 
-- Flutter 3.x stable (checked with 3.47)
-- Backend running and reachable from the device
-- Firebase project (only for push; the app works bell-only without it)
-
-## Configure
-
-| Value | How |
-|---|---|
-| Backend URL | `--dart-define=API_BASE_URL=http://<host>:8000` (emulator default `http://10.0.2.2:8000`; physical device needs the machine's LAN IP) |
-| Supabase URL/key | `--dart-define=SUPABASE_URL=… --dart-define=SUPABASE_ANON_KEY=…` (anon key is publishable by design) |
-| Push (FCM) | Firebase console → Android app (`applicationId`, see below) → download `google-services.json` into `android/app/`; backend needs `FIREBASE_CREDENTIALS_JSON` + `FIREBASE_PROJECT_ID` env. Without these, dispatch still notifies via bell and the app shows "push: off". |
-
-## Run
-
-```sh
+```powershell
 cd mobile_app
 flutter pub get
-flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000 \
-  --dart-define=SUPABASE_URL=https://qxhwsuzzdwjmpfdqwwri.supabase.co \
-  --dart-define=SUPABASE_ANON_KEY=<anon-key>
 ```
 
-`flutter analyze` for lint. The `android/` shell (Gradle, manifest,
-`applicationId com.indai.worker`) is created on first `flutter create` /
-build in this folder — commit it once generated, plus `google-services.json`
-is git-ignored by default template (keep it out of git).
+Emulator:
 
-## Manager → worker loop (end to end)
+```powershell
+flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
+```
 
-1. Manager creates plan (`POST /api/plans`), approves (creates tasks).
-2. Manager dispatches: engine matches skill + availability + machine,
-   writes assignments, bells the worker, pushes via FCM where tokens exist.
-   Re-dispatch sends nothing new (idempotent).
-3. Worker phone buzzes → opens job → Accept → Start → Done.
-4. Manager sees task DONE on the web dashboard.
+Real phone (same Wi-Fi as the laptop, backend on 0.0.0.0:8000):
+
+```powershell
+flutter run --dart-define=API_BASE_URL=http://<laptop-LAN-IP>:8000
+```
+
+USB debugging (no Wi-Fi needed):
+
+```powershell
+adb reverse tcp:8000 tcp:8000
+flutter run --dart-define=API_BASE_URL=http://127.0.0.1:8000
+```
+
+Install a debug APK: `flutter build apk --debug --dart-define=API_BASE_URL=...`
+then `flutter install`. `flutter analyze` for lint.
+
+## Windows firewall note (real phone over Wi-Fi)
+
+If the app cannot reach the laptop, allow inbound TCP 8000 in an
+**admin** PowerShell (one time):
+
+```powershell
+netsh advfirewall firewall add rule name="IndAI 8000" dir=in action=allow protocol=TCP localport=8000
+```
+
+## Dev-only cleartext HTTP
+
+`android/.../network_security_config.xml` permits cleartext HTTP because the
+dev backend serves plain HTTP. Production must use HTTPS and set
+`cleartextTrafficPermitted="false"`. If the app is also run as Flutter web,
+add the web origin to the backend CORS list first (development only).
+
+## Demo login
+
+Backend script `python -m backend.scripts.seed_employees` creates 15 demo
+workers; usernames/passwords live ONLY in the gitignored
+`docs/demo_worker_credentials.txt`. Sign in on the phone with one of those
+pairs, e.g. username `arun.prakash`.
+
+## Screens and endpoints used (prototype worker-token auth)
+
+- Login: `POST /api/worker-auth/login` (`identifier` = email, employee code
+  or username; generic 401, 429 after abuse) → Bearer token in secure
+  storage, sent as `Authorization: Bearer <token>`; 401 anywhere signs out.
+- Change password: `POST /api/worker-auth/change-password`
+  (`current_password`, `new_password` min 8 chars; forced when the login
+  response has `must_change_password: true`).
+- Home: `GET /api/worker/me` (profile + task stats).
+- My Tasks: `GET /api/worker/tasks` (caller's tasks only, newest first;
+  pull-to-refresh, ~15 s poll, new-task indicator).
+- Task detail: `GET /api/worker/tasks/{id}` (includes `latest_telemetry`),
+  `PUT /api/worker/tasks/{id}/status` (PENDING → IN_PROGRESS → COMPLETED),
+  `PUT /api/worker/tasks/{id}/progress` (0..1),
+  `POST /api/worker/tasks/{id}/output` (`quantity`, `confirm` over target;
+  reads runs via `GET /api/production?order_id=` + `PUT /api/production/{id}`),
+  telemetry via `GET /api/telemetry/{machine}?limit=1` (stale-marked).
+- Report a problem: `POST /api/worker/incidents` (`LOW/MEDIUM/HIGH/CRITICAL`,
+  `[Worker report]` prefix + worker name, machine/task/order links).
+- Alerts: `GET /api/worker/alerts` (OPEN incidents touching caller's work).
+- Profile: `PUT /api/worker/availability` (`AVAILABLE/BUSY/UNAVAILABLE`);
+  sign-out is local-only (token deleted from secure storage).
+- Push (unwired): `POST /api/push-tokens` registered by `registerPushToken`;
+  `lib/services/push.dart` is currently not called from `main.dart`.

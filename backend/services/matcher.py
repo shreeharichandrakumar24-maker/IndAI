@@ -25,15 +25,20 @@ def skills_of(emp: Employee) -> List[str]:
     if s is None:
         return []
     if isinstance(s, dict):
-        vals = s.get("items") or s.get("value") or list(s.values())
-        if isinstance(vals, str):
-            vals = [vals]
+        # Explicit shapes first; an empty items list means no skills (never
+        # fall through to values(), which would stringify the empty list).
+        if isinstance(s.get("items"), list):
+            vals = s["items"]
+        elif isinstance(s.get("value"), str):
+            vals = [s["value"]]
+        elif isinstance(s.get("value"), list):
+            vals = s["value"]
+        else:
+            vals = [v for v in s.values() if isinstance(v, str)]
         out: List[str] = []
-        for v in vals or []:
+        for v in vals:
             if isinstance(v, str):
                 out.extend(p.strip().lower() for p in v.replace(";", ",").split(",") if p.strip())
-            elif v is not None:
-                out.append(str(v).lower())
         return out
     if isinstance(s, list):
         return [str(v).lower() for v in s]

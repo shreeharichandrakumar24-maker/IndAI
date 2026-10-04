@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
+import EmployeeCode from '../components/EmployeeCode';
 import VoicePicker from '../components/VoicePicker';
+import { useCommandFeed } from '../components/voice/CommandFeed';
 import { isVoiceOn, setVoiceOn as persistVoice, speakText, stopSpeaking as stopVoice } from '../services/voice';
 
 const CHIPS = [
@@ -27,6 +29,33 @@ export default function Assistant() {
   const [heardNote, setHeardNote] = useState('');
   const [quick, setQuick] = useState(null);
   const [quickBusy, setQuickBusy] = useState(false);
+  const [pending, setPending] = useState([]);
+  const [decidingAll, setDecidingAll] = useState('');
+  const feed = useCommandFeed();
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadPending = async () => {
+      try {
+        const data = await api.proposalsPending();
+        if (!cancelled) setPending(Array.isArray(data) ? data : []);
+      } catch { /* ignore; retried on next poll */ }
+    };
+    loadPending();
+    const t = setInterval(loadPending, 5000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
+  const decidePending = async (id, decision) => {
+    setDecidingAll(id + decision);
+    try {
+      await api.decideRecommendation(id, decision, '');
+      setPending((l) => l.filter((x) => x.id !== id));
+    } catch { /* error line below covers it via next poll */ }
+    finally {
+      setDecidingAll('');
+    }
+  };
   const recogRef = useRef(null);
 
   const micSupported = typeof window !== 'undefined' &&
@@ -91,6 +120,7 @@ export default function Assistant() {
       const res = await api.assistantChat(payload);
       const aiMsg = {
         role: 'ai', text: res.reply, trace: res.tool_trace || [], actions: res.proposed_actions || [],
+        commands: res.commands || [],
       };
       setMessages((ms) => {
         speak(aiMsg.text, ms.length);
@@ -101,7 +131,7 @@ export default function Assistant() {
       const aiMsg = {
         role: 'ai',
         text: aiDown
-          ? 'The AI helper is unavailable right now (no AI key configured). Quick stats above still work — please try again later.'
+          ? 'The AI helper is unavailable right now (no AI key configured). Quick stats above still work — or assign work deterministically from the Tasks page: open a task and use Suggest assignment.'
           : `Sorry, that failed: ${err.message}`,
         trace: [], actions: [],
       };
@@ -231,6 +261,32 @@ export default function Assistant() {
       </section>
 
       <section className="panel">
+        <h2>Pending proposals ({pending.length})</h2>
+        {pending.length === 0 ? (
+          <p className="muted">Nothing waiting. Voice or smart-split proposals appear here for one-tap approval.</p>
+        ) : (
+          <ul className="task-list">
+            {pending.map((p) => (
+              <li key={p.id} className="task-row">
+                <div className="task-main">
+                  <span className="cell-strong">{p.recommendation} <EmployeeCode employeeId={p.params?.employee_id} /></span>
+                  <span className="task-meta">{p.recommendation_type} · {(p.reason || '').slice(0, 120)}</span>
+                </div>
+                <div className="cell-actions" style={{ display: 'flex', gap: 6 }}>
+                  <button type="button" className="btn-small" disabled={!!decidingAll} onClick={() => decidePending(p.id, 'APPROVED')}>
+                    {decidingAll === p.id + 'APPROVED' ? '…' : 'Approve'}
+                  </button>
+                  <button type="button" className="btn-small" disabled={!!decidingAll} onClick={() => decidePending(p.id, 'REJECTED')}>
+                    {decidingAll === p.id + 'REJECTED' ? '…' : 'Reject'}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="panel">
         <div className="no-print" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
           {CHIPS.map((s) => (
             <button key={s} type="button" className="btn-small" onClick={() => send(s)} disabled={busy}>{s}</button>
@@ -251,6 +307,26 @@ export default function Assistant() {
                 )}
               </p>
               <p style={{ whiteSpace: 'pre-wrap' }}>{m.text}</p>
+              {m.role === 'ai' && (m.commands || []).map((c) => (
+                c.undo_available ? (
+                  <button
+                    key={c.command_id}
+                    type="button"
+                    className="btn-small"
+                    style={{ marginTop: 6 }}
+                    onClick={async () => {
+                      try {
+                        await feed?.undo(c.command_id);
+                        setNotes((n) => ({ ...n, [c.command_id]: 'undone' }));
+                      } catch (err) {
+                        setNotes((n) => ({ ...n, [c.command_id]: `Undo failed: ${err.message}` }));
+                      }
+                    }}
+                  >
+                    Undo
+                  </button>
+                ) : null
+              ))}
               {m.role === 'ai' && (m.trace || []).length > 0 && (
                 <div style={{ marginTop: 8 }}>
                   <button type="button" className="btn-small" onClick={() => setShowTrace((s) => ({ ...s, [i]: !s[i] }))}>

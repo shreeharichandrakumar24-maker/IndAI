@@ -14,6 +14,101 @@ from backend.services.llm import LLMUnavailable, complete_json
 
 router = APIRouter()
 
+PROPOSAL_ACTIONS = ("SCHEDULE_MAINTENANCE", "REASSIGN_TASK", "DELAY_TASK")
+
+
+class ProposalBody(BaseModel):
+    action_type: str
+    params: dict = {}
+    reason: str = ""
+
+
+@router.post("/proposals", response_model=RecommendationResponse)
+def create_proposal(body: ProposalBody, db: Session = Depends(get_db)):
+    """Thin validated creator over the Phase-4 flow (Part B). Nothing executes
+    here; approval stays on PATCH /recommendations/{id}/decision."""
+    from backend.models.models import Employee as EmpModel, Machine as MacModel, Task as TaskModel
+
+    action = (body.action_type or "").upper()
+    if action not in PROPOSAL_ACTIONS:
+        raise HTTPException(status_code=422, detail=f"Use one of {list(PROPOSAL_ACTIONS)}.")
+    params = dict(body.params or {})
+
+    def need_uuid(value, label, model):
+        try:
+            row = db.query(model).filter(model.id == UUID(str(value))).first()
+        except (ValueError, AttributeError):
+            row = None
+        if row is None:
+            raise HTTPException(status_code=422, detail=f"Unknown {label}.")
+        return str(row.id)
+
+    clean: dict = {}
+    if action == "SCHEDULE_MAINTENANCE":
+        if not params.get("machine_id"):
+            raise HTTPException(status_code=422, detail="machine_id is required.")
+        clean["machine_id"] = need_uuid(params["machine_id"], "machine", MacModel)
+        clean["issue"] = str(params.get("issue") or "Scheduled check")[:200]
+    elif action == "REASSIGN_TASK":
+        if not params.get("task_id"):
+            raise HTTPException(status_code=422, detail="task_id is required.")
+        clean["task_id"] = need_uuid(params["task_id"], "task", TaskModel)
+        if params.get("employee_id"):
+            emp = db.query(EmpModel).filter(EmpModel.id == UUID(str(params["employee_id"]))).first() \
+                if _is_uuid(params["employee_id"]) else None
+            if emp is None:
+                raise HTTPException(status_code=422, detail="Unknown employee.")
+            if (emp.status or "ACTIVE").upper() != "ACTIVE" or (emp.availability or "AVAILABLE").upper() != "AVAILABLE":
+                if not params.get("override") is True:
+                    raise HTTPException(status_code=422, detail=f"{emp.name} is not available; pass override=true to assign anyway.")
+            clean["employee_id"] = str(emp.id)
+            clean["override"] = bool(params.get("override"))
+        if params.get("machine_id"):
+            clean["machine_id"] = need_uuid(params["machine_id"], "machine", MacModel)
+        if "employee_id" not in clean and "machine_id" not in clean:
+            raise HTTPException(status_code=422, detail="Nothing to change.")
+    elif action == "DELAY_TASK":
+        if not params.get("task_id"):
+            raise HTTPException(status_code=422, detail="task_id is required.")
+        clean["task_id"] = need_uuid(params["task_id"], "task", TaskModel)
+        try:
+            from datetime import datetime
+            datetime.fromisoformat(str(params.get("new_deadline")).replace("Z", "+00:00"))
+        except (ValueError, AttributeError, TypeError):
+            raise HTTPException(status_code=422, detail="Bad new_deadline (ISO datetime required).")
+        clean["new_deadline"] = str(params["new_deadline"])
+
+    title = {"SCHEDULE_MAINTENANCE": "Schedule maintenance",
+             "REASSIGN_TASK": "Reassign task",
+             "DELAY_TASK": "Delay task"}[action]
+    row = AIRecommendation(
+        recommendation_type=action, entity_type="PROPOSAL", entity_id=UUID(str(clean.get("task_id") or clean.get("machine_id"))),
+        recommendation=title, reason=(body.reason or "")[:2000] or None,
+        confidence=None, status="PENDING",
+    )
+    row.params = clean
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.get("/proposals", response_model=list[RecommendationResponse])
+def list_proposals(status: str | None = None, db: Session = Depends(get_db)):
+    """Pending proposals (entity PROPOSAL). Same rows the decision endpoint acts on."""
+    q = db.query(AIRecommendation).filter(AIRecommendation.entity_type == "PROPOSAL")
+    if status:
+        q = q.filter(AIRecommendation.status == status.upper())
+    return q.order_by(AIRecommendation.created_at.desc()).limit(200).all()
+
+
+def _is_uuid(value) -> bool:
+    try:
+        UUID(str(value))
+        return True
+    except (ValueError, AttributeError):
+        return False
+
 ANALYSIS_SYSTEM_PROMPT = """You are a factory reliability analyst. Given a JSON snapshot of an incident (machine, telemetry, breaches vs thresholds, production, orders, maintenance history), explain the incident.
 Rules:
 - Use ONLY facts present in the snapshot. Cite the sensor values and order numbers you used.
@@ -261,7 +356,7 @@ def decide_recommendation(rec_id: UUID, body: DecisionBody, db: Session = Depend
             inc = db.query(Incident).filter(Incident.id == rec.entity_id).first()
             if inc is not None:
                 machine_id, order_id, task_id = inc.machine_id, inc.order_id, inc.task_id
-        elif rec.entity_type == "ASSISTANT":
+        elif rec.entity_type in ("ASSISTANT", "PROPOSAL"):
             # Derive links from the validated params (+ task row for order).
             from backend.models.models import Task as TaskModel
             if params.get("machine_id"):
@@ -406,3 +501,20 @@ def decide_recommendation(rec_id: UUID, body: DecisionBody, db: Session = Depend
         "maintenance_id": maintenance_id,
         "task_id": task_id_created,
     }
+
+
+class _AutonomyBody(BaseModel):
+    autonomy: str
+
+
+@router.get("/autonomy")
+def get_ai_autonomy(db: Session = Depends(get_db)):
+    """Autonomy mode (FAST|ASK) for direct voice/text commands. Absent = FAST."""
+    from backend.services import commands as _svc
+    return {"autonomy": _svc.get_autonomy(db)}
+
+
+@router.put("/autonomy")
+def put_ai_autonomy(body: _AutonomyBody, db: Session = Depends(get_db)):
+    from backend.services import commands as _svc
+    return {"autonomy": _svc.set_autonomy(db, body.autonomy)}

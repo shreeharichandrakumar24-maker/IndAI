@@ -21,3 +21,13 @@ export const NAV_ITEMS = [
   { id: 'ai', label: 'AI Assistant', roles: ['MANAGER', 'OPERATOR'] },
   { id: 'jarvis', label: 'Jarvis', roles: ['MANAGER', 'OPERATOR'] },
 ];
+
+// Sidebar grouping only. Ids + labels come from NAV_ITEMS above (unchanged),
+// so state-based routing in App.jsx is unaffected.
+export const NAV_SECTIONS = [
+  { label: 'Overview', ids: ['dashboard', 'map'] },
+  { label: 'Operations', ids: ['orders', 'tasks', 'production', 'employees', 'plans'] },
+  { label: 'Machines & IoT', ids: ['machines', 'iot', 'simulator', 'incidents'] },
+  { label: 'Intelligence', ids: ['jarvis', 'ai', 'simulate', 'memory', 'reports'] },
+  { label: 'Setup', ids: ['profile', 'import', 'users'] },
+];

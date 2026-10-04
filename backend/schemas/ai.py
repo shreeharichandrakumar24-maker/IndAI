@@ -222,6 +222,7 @@ class RecommendationResponse(BaseModel):
     reason: Optional[str] = None
     confidence: Optional[float] = None
     status: str
+    params: Optional[dict] = None
     created_at: datetime
     updated_at: datetime
 

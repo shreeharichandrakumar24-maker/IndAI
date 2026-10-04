@@ -51,6 +51,9 @@ export const api = {
   createEmployee: (data) => request('/api/employees', { method: 'POST', body: data }),
   updateEmployee: (id, data) => request(`/api/employees/${id}`, { method: 'PUT', body: data }),
   deleteEmployee: (id) => request(`/api/employees/${id}`, { method: 'DELETE' }),
+  workerLoginInfo: (id) => request(`/api/employees/${id}/worker-login`),
+  createWorkerLogin: (id, email) => request(`/api/employees/${id}/worker-login`, { method: 'POST', body: { email } }),
+  resetWorkerLogin: (id) => request(`/api/employees/${id}/worker-login/reset`, { method: 'POST' }),
   machines: () => request('/api/machines'),
   machine: (id) => request(`/api/machines/${id}`),
   createMachine: (data) => request('/api/machines', { method: 'POST', body: data }),
@@ -225,14 +228,35 @@ export const api = {
   // Smart Split (mobile-app Phase 3). Proposal only; creation is explicit.
   smartSplit: (orderId) => request('/api/ai/smart-split', { method: 'POST', body: { order_id: orderId } }),
   // Work plans + AI assignment (Phase 7 / F6).
-  plans: () => request('/api/plans'),
-  plan: (id) => request(`/api/plans/${id}`),
+  plans: () => request('/api/plans'),  plan: (id) => request(`/api/plans/${id}`),
   createPlan: (data) => request('/api/plans', { method: 'POST', body: data }),
   approvePlan: (id) => request(`/api/plans/${id}/approve`, { method: 'POST' }),
   dispatchPlan: (id) => request(`/api/plans/${id}/dispatch`, { method: 'POST' }),
   planAssignments: (id) => request(`/api/plans/${id}/assignments`),
   suggestAssignments: (id) => request(`/api/plans/${id}/suggest`, { method: 'POST' }),
+  planProgress: (id) => request(`/api/plans/${id}/progress`),
+  livePlans: () => request('/api/plans/live'),
+  attachPlanItem: (id, taskId) => request(`/api/plans/${id}/items`, { method: 'POST', body: { task_id: taskId } }),
+  // Voice agent (Part C/D). Token mints a fresh room + dispatches the agent.
+  voiceToken: () => request('/api/voice/token', { method: 'POST' }),
+  voiceStatus: () => request('/api/voice/status'),
+  // Pending proposals (Part D voice panel + Assistant page).
+  proposalsPending: () => request('/api/ai/proposals?status=PENDING'),
+  createProposal: (body) => request('/api/ai/proposals', { method: 'POST', body }),
+  // Deterministic allocation candidates (rule-based suggest drawer).
+  allocationCandidates: (taskId) => request(`/api/allocation/candidates?task_id=${taskId}`),
   pairAssignment: (id, data) => request(`/api/assignments/${id}/pair`, { method: 'PATCH', body: data }),
+  // FAST voice/text commands (Jarvis + text assistant): one call = one action.
+  commandTask: (body) => request('/api/ai/commands/task', { method: 'POST', body }),
+  commandOrder: (body) => request('/api/ai/commands/order', { method: 'POST', body }),
+  commandAssign: (body) => request('/api/ai/commands/assign', { method: 'POST', body }),
+  commandChange: (body) => request('/api/ai/commands/change', { method: 'POST', body }),
+  commandMaintenance: (body) => request('/api/ai/commands/maintenance', { method: 'POST', body }),
+  commandsRecent: (limit = 10) => request(`/api/ai/commands/recent?limit=${limit}`),
+  commandUndo: (id) => request(`/api/ai/commands/${id}/undo`, { method: 'POST' }),
+  commandUndoLast: () => request('/api/ai/commands/undo-last', { method: 'POST' }),
+  getAutonomy: () => request('/api/ai/autonomy'),
+  setAutonomy: (autonomy) => request('/api/ai/autonomy', { method: 'PUT', body: { autonomy } }),
 };
 
 export { API_BASE };

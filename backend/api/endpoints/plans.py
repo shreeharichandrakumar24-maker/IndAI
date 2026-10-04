@@ -70,9 +70,55 @@ def list_plans(db: Session = Depends(get_db), user=Depends(require_manager)):
     return db.query(WorkPlan).order_by(WorkPlan.created_at.desc()).all()
 
 
+@plans.get("/live")
+def live_plans(db: Session = Depends(get_db), user=Depends(require_manager)):
+    """System-wide live view (no drafting needed): all non-completed tasks
+    grouped by order with live fields, plus the unplanned list (tasks in no
+    plan). Attach via POST /plans/{id}/items."""
+    from backend.services.plan_progress import live_overview
+    return live_overview(db)
+
+
 @plans.get("/{plan_id}", response_model=PlanResponse)
 def get_plan(plan_id: UUID, db: Session = Depends(get_db), user=Depends(require_manager)):
     return _plan_or_404(db, plan_id)
+
+
+@plans.get("/{plan_id}/progress")
+def plan_progress_view(plan_id: UUID, db: Session = Depends(get_db),
+                       user=Depends(require_manager)):
+    """Live progress for one plan: recomputed lifecycle + flags, per-item
+    live task state (joined, never snapshotted), and the activity timeline."""
+    from backend.services.plan_progress import plan_progress as _progress
+    return _progress(db, plan_id)
+
+
+@plans.post("/{plan_id}/items")
+def attach_plan_item(plan_id: UUID, body: dict, db: Session = Depends(get_db),
+                     user=Depends(require_manager)):
+    """Attach an EXISTING task to an approved plan (e.g. from Unplanned).
+    Idempotent: attaching twice returns the existing row. Uses the normal
+    plan flow — the plan itself must already be APPROVED or DISPATCHED."""
+    from uuid import UUID as _UUID
+    p = _plan_or_404(db, plan_id)
+    if (p.status or "").upper() not in ("APPROVED", "DISPATCHED"):
+        raise HTTPException(status_code=422, detail="Plan must be APPROVED first.")
+    try:
+        tid = _UUID(str((body or {}).get("task_id") or ""))
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail="task_id is required.")
+    task = db.query(Task).filter(Task.id == tid).first()
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    existing = db.query(PlanAssignment).filter(
+        PlanAssignment.plan_id == plan_id, PlanAssignment.task_id == tid).first()
+    if existing is not None:
+        return {"assignment_id": str(existing.id), "attached": False}
+    row = PlanAssignment(plan_id=plan_id, task_id=tid, status="UNASSIGNED")
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return {"assignment_id": str(row.id), "attached": True}
 
 
 @plans.get("/{plan_id}/assignments", response_model=List[AssignmentResponse])

@@ -274,7 +274,7 @@ export default function Production() {
             <h2>Delete Production Run</h2>
             <p className="muted">
               Delete run{' '}
-              <strong style={{ color: '#e2e8f0' }}>{String(confirmDelete.id).slice(0, 8)}</strong>?
+              <strong>{String(confirmDelete.id).slice(0, 8)}</strong>?
               Only this run record is removed — the linked order, task and machine are not
               affected. No other records depend on a production run. This cannot be undone.
             </p>

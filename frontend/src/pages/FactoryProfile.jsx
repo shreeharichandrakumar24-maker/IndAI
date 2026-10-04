@@ -45,6 +45,27 @@ export default function FactoryProfile() {
     }
   };
 
+  // One-click repair: replace only the alert limits with the preset
+  // per-type defaults (machines, templates, skills untouched), so an
+  // already-approved profile picks up threshold fixes without re-onboarding.
+  const handleResetThresholds = async () => {
+    setSaving(true);
+    setSaveMsg('');
+    setError('');
+    try {
+      const preset = await api.presetProfile();
+      const presetThresholds = (preset.profile || preset).thresholds;
+      if (!presetThresholds) throw new Error('Preset has no thresholds');
+      const res = await api.saveProfile({ ...profile, thresholds: presetThresholds });
+      setData(res);
+      setSaveMsg('Alert limits reset to preset defaults. Detection uses them immediately (profile stays approved).');
+    } catch (err) {
+      setError(err.message || 'Reset failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const refresher = useAutoRefresh(load);
 
   return (
@@ -92,6 +113,11 @@ export default function FactoryProfile() {
               </tbody>
             </table>
             <p className="muted" style={{ marginTop: 8 }}>Live detection uses these limits when approved (deterministic); otherwise built-in defaults apply.</p>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+              <button type="button" className="btn-secondary" onClick={handleResetThresholds} disabled={saving}>
+                {saving ? 'Resetting…' : 'Reset thresholds to preset defaults'}
+              </button>
+            </div>
           </section>
           <section className="panel">
             <h2>Terminology · Skills · Shifts · Problems</h2>

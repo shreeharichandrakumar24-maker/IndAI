@@ -229,7 +229,7 @@ export default function Orders({ focusOrderId }) {
             <h2>Delete Order</h2>
             <p className="muted">
               Delete order{' '}
-              <strong style={{ color: '#e2e8f0' }}>{confirmDelete.order_number}</strong>? Tasks and
+              <strong>{confirmDelete.order_number}</strong>? Tasks and
               production runs belonging to this order will also be deleted. This cannot be undone.
             </p>
             {deleteError && (

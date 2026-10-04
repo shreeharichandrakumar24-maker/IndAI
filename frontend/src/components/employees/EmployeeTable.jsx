@@ -14,7 +14,7 @@ function summarizeDict(value) {
   return keys.slice(0, 3).join(', ') + (keys.length > 3 ? ` +${keys.length - 3}` : '');
 }
 
-export default function EmployeeTable({ employees, loading, onEdit, onDelete, deletingId }) {
+export default function EmployeeTable({ employees, loading, onEdit, onDelete, deletingId, logins, onWorkerLogin }) {
   if (loading) return <p className="muted">Loading employees…</p>;
   if (employees.length === 0) {
     return (
@@ -37,13 +37,18 @@ export default function EmployeeTable({ employees, loading, onEdit, onDelete, de
             <th>Status</th>
             <th>Availability</th>
             <th>Skills</th>
+            <th>Login</th>
             <th aria-label="Actions" />
           </tr>
         </thead>
         <tbody>
           {employees.map((e) => (
             <tr key={e.id}>
-              <td className="cell-strong">{e.name}</td>
+              <td className="cell-strong">{e.name}{' '}
+                {logins?.[e.id]?.employee_code && (
+                  <StatusBadge tone="neutral">{logins[e.id].employee_code}</StatusBadge>
+                )}
+              </td>
               <td className="cell-mono">{String(e.id).slice(0, 8)}</td>
               <td>{e.role}</td>
               <td>{e.shift || '—'}</td>
@@ -54,7 +59,19 @@ export default function EmployeeTable({ employees, loading, onEdit, onDelete, de
               <td className="cell-truncate" title={JSON.stringify(e.skills || {})}>
                 {summarizeDict(e.skills)}
               </td>
+              <td>
+                {logins?.[e.id]?.has_login ? (
+                  <span title={`${logins[e.id].employee_code || ''} · ${logins[e.id].email || ''}`}>
+                    <StatusBadge tone="ok">Has login</StatusBadge>
+                  </span>
+                ) : (
+                  <StatusBadge tone="neutral">No login</StatusBadge>
+                )}
+              </td>
               <td className="cell-actions">
+                <button type="button" className="btn-small" onClick={() => onWorkerLogin && onWorkerLogin(e)}>
+                  Login
+                </button>
                 <button type="button" className="btn-small" onClick={() => onEdit(e)}>
                   Edit
                 </button>

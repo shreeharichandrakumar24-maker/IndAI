@@ -148,7 +148,7 @@ export default function Simulator() {
             {machines.map((m) => {
               const pinned = pins[m.id] === 'abnormal';
               return (
-                <tr key={m.id} style={pinned ? { background: 'rgba(239,68,68,0.08)' } : undefined}>
+                <tr key={m.id} style={pinned ? { background: 'var(--danger-soft)' } : undefined}>
                   <td className="cell-mono">{machineCode(m.name) || '—'}</td>
                   <td className="cell-strong">{m.name}</td>
                   <td><StatusBadge tone={pinned ? 'bad' : 'ok'}>{pinned ? 'ABNORMAL (pinned)' : 'NORMAL (baseline)'}</StatusBadge></td>

@@ -9,3 +9,4 @@ httpx
 python-multipart
 openpyxl
 firebase-admin  # optional: only used for FCM push when FIREBASE_* configured
+livekit-api==1.2.1  # voice token minting (Part C); pinned to Jarvis venv

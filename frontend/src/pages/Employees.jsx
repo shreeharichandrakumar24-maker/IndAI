@@ -6,6 +6,7 @@ import StatCard from '../components/StatCard';
 import EmployeeFilters from '../components/employees/EmployeeFilters';
 import EmployeeTable from '../components/employees/EmployeeTable';
 import EmployeeForm from '../components/employees/EmployeeForm';
+import WorkerLoginModal from '../components/employees/WorkerLoginModal';
 
 export default function Employees() {
   const [employees, setEmployees] = useState([]);
@@ -22,19 +23,32 @@ export default function Employees() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [deleteError, setDeleteError] = useState('');
+  const [logins, setLogins] = useState({});
+  const [loginFor, setLoginFor] = useState(null);
+
+  const loadLogins = useCallback(async (list) => {
+    const results = await Promise.allSettled((list || []).map((e) => api.workerLoginInfo(e.id)));
+    const map = {};
+    (list || []).forEach((e, i) => {
+      if (results[i].status === 'fulfilled') map[e.id] = results[i].value;
+    });
+    setLogins(map);
+  }, []);
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
     setLoadError('');
     try {
       const data = await api.employees();
-      setEmployees(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setEmployees(list);
+      loadLogins(list);
     } catch (err) {
       setLoadError(err.message || 'Failed to load employees');
     } finally {
       if (!quiet) setLoading(false);
     }
-  }, []);
+  }, [loadLogins]);
 
   useEffect(() => {
     load();
@@ -75,14 +89,17 @@ export default function Employees() {
     setSaving(true);
     setFormError('');
     try {
+      let saved = editing;
       if (editing) {
         await api.updateEmployee(editing.id, payload);
       } else {
-        await api.createEmployee(payload);
+        saved = await api.createEmployee(payload);
       }
       setFormOpen(false);
       setEditing(null);
       await load();
+      // Offer worker login right after adding a new employee.
+      if (!editing && saved && saved.id) setLoginFor(saved);
     } catch (err) {
       setFormError(err.message || 'Save failed');
     } finally {
@@ -165,10 +182,20 @@ export default function Employees() {
               onEdit={openEdit}
               onDelete={setConfirmDelete}
               deletingId={deletingId}
+              logins={logins}
+              onWorkerLogin={setLoginFor}
             />
           </div>
         )}
       </section>
+
+      {loginFor && (
+        <WorkerLoginModal
+          employee={loginFor}
+          onClose={() => setLoginFor(null)}
+          onChanged={() => loadLogins(employees)}
+        />
+      )}
 
       {formOpen && (
         <EmployeeForm
@@ -197,7 +224,7 @@ export default function Employees() {
           >
             <h2>Delete Employee</h2>
             <p className="muted">
-              Remove <strong style={{ color: '#e2e8f0' }}>{confirmDelete.name}</strong> ({confirmDelete.role})
+              Remove <strong>{confirmDelete.name}</strong> ({confirmDelete.role})
               from the registry? This cannot be undone.
             </p>
             {deleteError && (

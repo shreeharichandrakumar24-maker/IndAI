@@ -19,12 +19,15 @@ import Plans from './pages/Plans';
 import Simulate from './pages/Simulate';
 import Assistant from './pages/Assistant';
 import Jarvis from './pages/Jarvis';
+import VoiceProvider from './components/voice/VoiceContext';
+import MiniPlayer from './components/voice/MiniPlayer';
+import { CommandFeedProvider, ToastHost } from './components/voice/CommandFeed';
 import Users from './pages/Users';
 import Login from './pages/Login';
 import Onboarding from './pages/Onboarding';
 import PlaceholderPage from './pages/PlaceholderPage';
 import { useSystemStatus } from './hooks/useSystemStatus';
-import { NAV_ITEMS } from './config/nav';
+import { NAV_ITEMS, NAV_SECTIONS } from './config/nav';
 import { api } from './services/api';
 import { accessToken, signOut } from './services/auth';
 import './App.css';
@@ -47,8 +50,24 @@ const TITLES = {  dashboard: { title: 'Command Center', subtitle: 'Factory-wide 
   simulate: { title: 'What-If', subtitle: 'Project decisions safely' },
   users: { title: 'Users', subtitle: 'Accounts and roles' },
   ai: { title: 'AI Assistant', subtitle: 'Administrative intelligence' },
-  jarvis: { title: 'Jarvis', subtitle: 'Realtime voice conversation' },
+  jarvis: { title: 'Jarvis', subtitle: 'Realtime voice agent' },
 };
+
+function readTheme() {
+  try {
+    return document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
+}
+
+function readSidebarCollapsed() {
+  try {
+    return window.localStorage.getItem('indai.sidebar.collapsed') === '1';
+  } catch {
+    return false;
+  }
+}
 
 export default function App() {
   // DEV ONLY: VITE_AUTH_DISABLED=true skips the login screen entirely.
@@ -57,6 +76,27 @@ export default function App() {
   // Optional cross-page navigation payload (Phase 1 map links), e.g.
   // navigate('orders', { orderId }). Manual nav clears it. No router.
   const [navPayload, setNavPayload] = useState(null);
+  const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [theme, setTheme] = useState(readTheme);
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => {
+      const next = t === 'dark' ? 'light' : 'dark';
+      try {
+        document.documentElement.dataset.theme = next;
+        window.localStorage.setItem('indai.theme', next);
+      } catch { /* private mode: state just won't persist */ }
+      return next;
+    });
+  }, []);
+  const toggleCollapsed = useCallback(() => {
+    setCollapsed((c) => {
+      try {
+        window.localStorage.setItem('indai.sidebar.collapsed', c ? '0' : '1');
+      } catch { /* private mode: state just won't persist */ }
+      return !c;
+    });
+  }, []);
   const navigate = useCallback((next, payload = null) => {
     setNavPayload(payload);
     setRoute(next);
@@ -64,7 +104,51 @@ export default function App() {
   const handleNavigate = useCallback((next) => {
     setNavPayload(null);
     setRoute(next);
+    setDrawerOpen(false);
   }, []);
+
+  // Browser RPC "ui.command" from the voice agent (Part D). Already
+  // validated; resolves human refs (codes/numbers) to ids, then navigates.
+  const handleUiCommand = useCallback(async (action, args) => {
+    if (action === 'navigate') {
+      if (!NAV_ITEMS.some((n) => n.id === args.page)) return `rejected: unknown page '${args.page}'`;
+      navigate(args.page);
+      return 'ok';
+    }
+    if (action === 'select_machine') {
+      const fleet = await api.machines();
+      const want = args.machine.trim().toLowerCase();
+      const hit = (Array.isArray(fleet) ? fleet : []).find((m) =>
+        (m.name || '').toLowerCase().startsWith(want) || m.id === args.machine);
+      if (!hit) return `rejected: no machine '${args.machine}'`;
+      navigate('machines', { machineId: hit.id });
+      return 'ok';
+    }
+    if (action === 'open_order' || action === 'focus_order_on_map') {
+      const list = await api.orders();
+      const want = args.order.trim().toLowerCase();
+      const hit = (Array.isArray(list) ? list : []).find((o) =>
+        (o.order_number || '').toLowerCase() === want || o.id === args.order);
+      if (!hit) return `rejected: no order '${args.order}'`;
+      if (action === 'open_order') navigate('orders', { orderId: hit.id });
+      else navigate('map', { orderId: hit.id });
+      return 'ok';
+    }
+    if (action === 'open_incident') {
+      const list = await api.incidents();
+      const want = args.incident.trim().toLowerCase();
+      const hit = (Array.isArray(list) ? list : []).find((i) =>
+        String(i.id).toLowerCase().startsWith(want));
+      if (!hit) return `rejected: no incident '${args.incident}'`;
+      navigate('incidents', { incidentId: hit.id });
+      return 'ok';
+    }
+    if (action === 'show_proposals') {
+      navigate('ai');
+      return 'ok';
+    }
+    return 'rejected: unhandled';
+  }, [navigate]);
   const [session, setSession] = useState(() => (devMode || !!accessToken()));
   const [user, setUser] = useState(null);
   const [gate, setGate] = useState('checking'); // checking | onboarding | ready
@@ -177,16 +261,21 @@ export default function App() {
   // Guard: never render a nav item the role may not see.
   const allowed = NAV_ITEMS.some((n) => n.id === route && (!n.roles || n.roles.includes(user.role)));
   const shown = allowed ? route : 'dashboard';
+  const crumb = NAV_SECTIONS.find((s) => s.ids.includes(shown))?.label || '';
 
   return (
-    <div className="shell">
-      <Sidebar active={shown} onNavigate={handleNavigate} role={user.role} />
+    <VoiceProvider onUiCommand={handleUiCommand}>
+    <CommandFeedProvider>
+    <div className={`shell${collapsed ? ' rail' : ''}`}>
+      <Sidebar active={shown} onNavigate={handleNavigate} role={user.role}
+        collapsed={collapsed} onToggleCollapse={toggleCollapsed}
+        drawerOpen={drawerOpen} onCloseDrawer={() => setDrawerOpen(false)} />
       <div className="main">
-        <Topbar title={(TITLES[shown] || meta).title} subtitle={(TITLES[shown] || meta).subtitle} systemStatus={systemStatus} user={user} onSignOut={devMode ? null : handleSignOut} onNavigate={handleNavigate} />
+        <Topbar title={(TITLES[shown] || meta).title} subtitle={(TITLES[shown] || meta).subtitle} crumb={crumb} systemStatus={systemStatus} user={user} onSignOut={devMode ? null : handleSignOut} onNavigate={handleNavigate} onMenu={() => setDrawerOpen(true)} theme={theme} onToggleTheme={toggleTheme} />
         {shown === 'dashboard' ? (
           <Dashboard />
         ) : shown === 'map' ? (
-          <FactoryMap onNavigate={navigate} />
+          <FactoryMap onNavigate={navigate} focusOrderId={navPayload?.orderId} />
         ) : shown === 'profile' ? (
           <FactoryProfile />
         ) : shown === 'import' ? (
@@ -212,7 +301,7 @@ export default function App() {
         ) : shown === 'reports' ? (
           <Reports />
         ) : shown === 'plans' ? (
-          <Plans />
+          <Plans onNavigate={navigate} />
         ) : shown === 'simulate' ? (
           <Simulate />
         ) : shown === 'ai' ? (
@@ -225,6 +314,10 @@ export default function App() {
           <PlaceholderPage page={shown} />
         )}
       </div>
+      <MiniPlayer hidden={shown === 'jarvis'} onOpenJarvis={() => handleNavigate('jarvis')} />
     </div>
+    <ToastHost />
+    </CommandFeedProvider>
+    </VoiceProvider>
   );
 }

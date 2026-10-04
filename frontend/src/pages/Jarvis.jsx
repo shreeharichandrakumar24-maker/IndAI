@@ -1,335 +1,232 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../services/api';
 import StatusBadge from '../components/StatusBadge';
 import VoicePicker from '../components/VoicePicker';
-import { isVoiceOn, speakText, speechSupported, stopSpeaking } from '../services/voice';
+import { ProposalMiniList } from '../components/voice/MiniPlayer';
+import { ActivityStrip, useCommandFeed } from '../components/voice/CommandFeed';
+import { useVoice, voiceStateLabel } from '../components/voice/useVoice';
 
-const WAKE_WORD = 'jarvis';
-const WAKE_COOLDOWN_MS = 10 * 1000;
+const CHIPS = [
+  'Which machines need attention?',
+  'Show me M-001',
+  'Which employees are available for welding?',
+  'Assign the welding task to the best person',
+  'What happens if M-001 is down for four hours?',
+];
 
-// Realtime Jarvis tab: tap to start listening, say "jarvis" to wake, talk.
-// Replies stream sentence-by-sentence and are spoken as they arrive
-// (barge-in: talking while Jarvis speaks cuts it off and takes the floor).
-// Proposals still need Approve clicks — voice never auto-applies.
+// Full Jarvis page. It reads the SHARED app-level voice session (see
+// VoiceContext) — navigating here never restarts the room, mic or
+// transcript, and the mini player + page stay in sync. Typed fallback,
+// checklist, chips and proposals are unchanged.
+// Layout: status header on top, then a two-column grid (conversation card
+// with its own scroll + pinned input on the left, checklist/chips/proposals
+// on the right) collapsing to one column below ~1000px.
+const ORB_CLASS = {
+  speaking: 'orb-speaking', thinking: 'orb-thinking', listening: 'orb-listening',
+};
+
 export default function Jarvis() {
-  const [active, setActive] = useState(false);
-  const [phase, setPhase] = useState('idle'); // idle|listening|thinking|speaking
-  const [lines, setLines] = useState([]);
-  const [wakeNote, setWakeNote] = useState('');
-  const [lastWake, setLastWake] = useState(0);
-  const recogRef = useRef(null);
-  const activeRef = useRef(false);
-  const phaseRef = useRef('idle');
-  const historyRef = useRef([]);
-  const setPhaseBoth = (p) => {
-    phaseRef.current = p;
-    setPhase(p);
-  };
-
+  const voice = useVoice();
+  const session = voice.session;
+  const roomState = voice.roomState;
+  const voiceStatus = voice.voiceStatus;
+  const [micState, setMicState] = useState('unknown');
+  const [typedInput, setTypedInput] = useState('');
+  const [typedBusy, setTypedBusy] = useState(false);
+  const [typedReply, setTypedReply] = useState(null);
+  const feed = useCommandFeed();
+  const transcriptRef = useRef(null);
   const micSupported = typeof window !== 'undefined' &&
-    (window.SpeechRecognition || window.webkitSpeechRecognition);
+    !!(window.SpeechRecognition || window.webkitSpeechRecognition || navigator.mediaDevices?.getUserMedia);
 
-  const addLine = (who, text) => {
-    setLines((ls) => [...ls.slice(-30), { who, text }]);
-  };
-
-  useEffect(() => () => {
-    activeRef.current = false;
-    try {
-      recogRef.current?.abort();
-    } catch { /* ignore */ }
-    stopSpeaking();
+  useEffect(() => {
+    if (navigator.permissions?.query) {
+      let cancelled = false;
+      navigator.permissions.query({ name: 'microphone' }).then(
+        (r) => { if (!cancelled) setMicState(r.state); },
+        () => {},
+      );
+      return () => { cancelled = true; };
+    }
+    return undefined;
   }, []);
 
-  const speakQueue = useRef([]);
+  const inSession = session.creds && session.phase !== 'idle' && session.phase !== 'error';
+  const assistantState = roomState.assistantState;
+  const label = voiceStateLabel(session, roomState);
+  const orbState = assistantState === 'speaking' ? 'speaking'
+    : assistantState === 'thinking' ? 'thinking'
+    : assistantState === 'listening' ? 'listening' : 'live';
+  const voiceTranscript = roomState.transcript.slice(-6);
+  const lastTranscriptText = voiceTranscript.length > 0
+    ? voiceTranscript[voiceTranscript.length - 1].text : '';
 
-  const speakSentences = (sentences) => {
-    // Shared speech queue: sentence events arrive while earlier ones still
-    // play, so queue them and drain in order instead of cancelling.
-    for (const s of sentences) {
-      if (s && s.trim()) speakQueue.current.push(s.trim());
-    }
-    drainSpeech();
-  };
+  // Keep the newest message visible inside the conversation card.
+  useEffect(() => {
+    const el = transcriptRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [voiceTranscript.length, lastTranscriptText, typedReply, typedBusy]);
 
-  const drainSpeech = () => {
-    if (!activeRef.current || phaseRef.current === 'speaking') return;
-    const s = speakQueue.current.shift();
-    if (!s) {
-      setPhaseBoth(activeRef.current ? 'listening' : 'idle');
-      return;
-    }
-    setPhaseBoth('speaking');
-    addLine('jarvis', s);
-    const ok = say(s, { onend: () => { setPhaseBoth('listening'); drainSpeech(); } });
-    if (!ok) drainSpeech();
-  };
-
-  // Echo guard: the mic hears Jarvis's own speaker output. Everything
-  // spoken in the last 20 s is remembered; transcripts matching it are
-  // dropped before wake/barge-in/question handling. Genuine user speech
-  // differs from TTS text, so barge-in keeps working.
-  const spokenRef = useRef([]);
-  const ECHO_MS = 20 * 1000;
-
-  const logSpoken = (text) => {
-    const clean = String(text || '').trim();
-    if (!clean) return;
-    const now = Date.now();
-    spokenRef.current = [...spokenRef.current.filter((e) => now - e.at < ECHO_MS), { text: clean, at: now }].slice(-10);
-  };
-
-  const normWords = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
-
-  const isEcho = (transcript) => {
-    const heard = normWords(transcript);
-    if (heard.length === 0) return false;
-    const now = Date.now();
-    const heardSet = new Set(heard);
-    for (const entry of spokenRef.current) {
-      if (now - entry.at > ECHO_MS) continue;
-      const said = normWords(entry.text);
-      if (said.length === 0) continue;
-      // Either direction contains the other (partial mic pickup)...
-      const heardStr = ` ${heard.join(' ')} `;
-      const saidStr = ` ${said.join(' ')} `;
-      if (heardStr.includes(saidStr) || saidStr.includes(heardStr)) return true;
-      // ...or strong token overlap (Jaccard >= 0.55).
-      const saidSet = new Set(said);
-      let inter = 0;
-      for (const w of heardSet) if (saidSet.has(w)) inter++;
-      const jaccard = inter / new Set([...heardSet, ...saidSet]).size;
-      if (jaccard >= 0.55) return true;
-    }
-    return false;
-  };
-
-  const say = (text, onend) => {
-    logSpoken(text);
-    return speakText(text, { onend });
-  };
-
-  const cutSpeech = () => {
-    speakQueue.current = [];
-    stopSpeaking();
-  };
-
-  const askBackend = async (text) => {
-    setPhaseBoth('thinking');
-    addLine('you', text);
-    historyRef.current = [...historyRef.current.slice(-5), { role: 'user', content: text }];
-    let reply = '';
-    const actions = [];
+  const sendTyped = useCallback(async (text) => {
+    const msg = (text ?? typedInput).trim();
+    if (!msg || typedBusy) return;
+    setTypedInput('');
+    setTypedBusy(true);
     try {
-      await api.assistantVoice(historyRef.current, (ev, data) => {
-        if (!activeRef.current) return;
-        if (ev === 'sentence' && data.text) {
-          reply += (reply ? ' ' : '') + data.text;
-          speakSentences([data.text]);
-        } else if (ev === 'done') {
-          for (const a of data.proposed_actions || []) actions.push(a);
-        } else if (ev === 'error') {
-          addLine('jarvis', `Sorry — ${data.detail || 'voice service failed.'}`);
-          setPhaseBoth(activeRef.current ? 'listening' : 'idle');
-        }
+      const res = await api.assistantChat([{ role: 'user', content: msg }]);
+      setTypedReply({
+        q: msg, a: res.reply,
+        actions: res.proposed_actions || [],
+        commands: res.commands || [],
       });
-      historyRef.current = [...historyRef.current.slice(-5), { role: 'assistant', content: reply }];
-      if (actions.length > 0) {
-        addLine('jarvis-action', JSON.stringify(actions));
-      }
     } catch (err) {
-      addLine('jarvis', `Sorry — ${err.message}`);
-      setPhaseBoth(activeRef.current ? 'listening' : 'idle');
+      setTypedReply({ q: msg, a: `Failed: ${err.message}`, actions: [] });
+    } finally {
+      setTypedBusy(false);
     }
-  };
+  }, [typedInput, typedBusy]);
 
-  const handleHeard = (transcript, isFinal) => {
-    if (!activeRef.current) return;
-    const lower = transcript.toLowerCase();
-    // Echo first: own speaker output must never barge in, wake, or ask.
-    if (isEcho(transcript)) return;
-    // Barge-in: genuine talking while Jarvis speaks cuts it off.
-    if (phaseRef.current === 'speaking' && lower.trim().length > 2) {
-      cutSpeech();
-      setPhaseBoth('listening');
-    }
-    if (!isFinal) return;
-    // Wake word: single word "jarvis" (cooldown against repeats/misfires).
-    if (lower.includes(WAKE_WORD)) {
-      const now = Date.now();
-      setLastWake((prev) => {
-        if (now - prev < WAKE_COOLDOWN_MS) return prev;
-        const greeting = 'Hey man, how can I help you?';
-        setPhaseBoth('speaking');
-        addLine('jarvis', greeting);
-        say(greeting, { onend: () => { if (activeRef.current) setPhaseBoth('listening'); } });
-        setWakeNote('Jarvis awake — talk now.');
-        return now;
-      });
-      return;
-    }    // Anything else heard while awake is a question (only when not speaking).
-    if (phaseRef.current === 'listening' && transcript.trim()) {
-      askBackend(transcript.trim());
-    }
-  };
-
-  const start = () => {
-    const Impl = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Impl) return;
-    activeRef.current = true;
-    setActive(true);
-    setWakeNote(`Say "${WAKE_WORD}" to wake me.`);
-    const recog = new Impl();
-    recogRef.current = recog;
-    recog.lang = 'en-US';
-    recog.interimResults = true;
-    recog.continuous = true;
-    recog.onresult = (e) => {
-      for (let i = e.resultIndex || 0; i < (e.results?.length || 0); i++) {
-        const alt = e.results[i]?.[0];
-        if (!alt) continue;
-        handleHeard(alt.transcript || '', !!e.results[i].isFinal);
-      }
-    };
-    recog.onend = () => {
-      // Continuous mode: auto-restart while the tab session is active.
-      if (activeRef.current) {
-        try {
-          recog.start();
-        } catch { /* ignore */ }
-      } else {
-        setPhaseBoth('idle');
-      }
-    };
-    recog.onerror = () => {
-      if (activeRef.current) setWakeNote('Mic error — check permission, still listening.');
-    };
-    try {
-      recog.start();
-      setPhaseBoth('listening');
-    } catch {
-      activeRef.current = false;
-      setActive(false);
-    }
-  };
-
-  const stop = () => {
-    activeRef.current = false;
-    setActive(false);
-    setPhaseBoth('idle');
-    try {
-      recogRef.current?.abort();
-    } catch { /* ignore */ }
-    cutSpeech();
-    setWakeNote('');
-  };
-
-  const decide = async (act, decision) => {
-    try {
-      await api.decideRecommendation(act.id, decision, '');
-      addLine('jarvis', decision === 'APPROVED' ? `Approved ${act.title} — applied.` : 'Rejected — nothing changed.');
-    } catch (err) {
-      addLine('jarvis', `Decision failed: ${err.message}`);
-    }
-  };
-
-  const orbColor = phase === 'speaking' ? '#38bdf8' : phase === 'thinking' ? '#f59e0b' : phase === 'listening' ? '#22c55e' : '#64748b';
+  const checklist = voiceStatus ? [
+    { label: 'Voice configured', ok: voiceStatus.configured, hint: !voiceStatus.configured && voiceStatus.missing?.length > 0 ? `missing: ${voiceStatus.missing.join(', ')}` : '' },
+    { label: 'Token OK', ok: ['connecting', 'waiting-agent', 'live'].includes(session.phase) || session.agentJoined },
+    { label: 'Connected', ok: ['waiting-agent', 'live'].includes(session.phase) || session.agentJoined },
+    { label: 'Agent joined', ok: session.agentJoined, hint: !session.agentJoined && inSession ? 'start it: cd Jarvis, then uv run src/agent.py dev' : '' },
+    { label: 'Mic permission', ok: micState === 'granted', hint: micState === 'granted' ? '' : `browser says: ${micState}` },
+  ] : [];
 
   return (
-    <div className="page">
+    <div className="page jarvis-page">
       <div className="page-head">
         <div>
           <h2>Jarvis</h2>
-          <p className="page-desc">Realtime voice. Say “jarvis” to wake. Talking while it speaks interrupts. Actions still need your tap.</p>
+          <p className="page-desc">Realtime voice agent. Talk, interrupt, and tap Approve for proposals. Typed chat below works without voice.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <VoicePicker />
           <StatusBadge tone="info">AI voice labeled</StatusBadge>
         </div>
       </div>
 
-      {!micSupported && (
-        <div className="alert-banner" role="alert">
-          Voice input needs Chrome or Edge. Text chat stays available on the AI Assistant page.
-        </div>
-      )}
-
-      <section className="panel" style={{ textAlign: 'center', padding: '32px 16px' }}>
-        <div
-          aria-label={`Jarvis is ${phase}`}
-          style={{
-            width: 120, height: 120, borderRadius: '50%', margin: '0 auto 16px',
-            background: `radial-gradient(circle, ${orbColor} 0%, transparent 70%)`,
-            border: `3px solid ${orbColor}`,
-            transition: 'border-color 0.3s',
-          }}
-        />
-        <p className="muted" role="status">
-          {!active ? 'Tap Start, then say “jarvis”.' : `${phase}…`}
-          {wakeNote && active ? ` ${wakeNote}` : ''}
-          {!isVoiceOn() && active ? ' (voice replies muted — toggle in AI Assistant)' : ''}
-        </p>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
-          {!active ? (
-            <button type="button" className="btn-primary" disabled={!micSupported} onClick={start}>🎤 Start listening</button>
+      <section className="panel jarvis-hero jarvis-status" aria-label="Voice session status">
+        <div className="jarvis-status-main">
+          {!inSession ? (
+            <>
+              <p className="muted">Starts a fresh LiveKit room and dispatches the voice agent.</p>
+              <button type="button" className="btn-primary btn-hero" onClick={session.start}>
+                🎤 Start voice
+              </button>
+            </>
           ) : (
-            <button type="button" className="btn-secondary" onClick={stop}>⏹ Stop</button>
+            <>
+              <div
+                className={`jarvis-orb jarvis-orb-sm ${ORB_CLASS[orbState] || ''}`}
+                aria-label={`Jarvis is ${label}`}
+              />
+              <p className="muted" role="status">
+                {assistantState} · {roomState.remoteCount > 0 ? 'agent joined' : 'waiting for agent…'}
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                <button type="button" className="btn-small" onClick={() => session.setMuted(!session.muted)}>
+                  {session.muted ? '🔇 Unmute' : '🎤 Mute'}
+                </button>
+                <button type="button" className="btn-secondary" onClick={session.end}>⏹ End voice</button>
+              </div>
+            </>
           )}
+          {session.error && <p className="form-errors" role="alert" style={{ marginTop: 8 }}>{session.error}</p>}
+        </div>
+        <div className="jarvis-status-side">
+          <VoicePicker />
         </div>
       </section>
 
-      <section className="panel">
-        <h2>Conversation</h2>
-        {lines.length === 0 ? <p className="muted">Nothing said yet.</p> : (
-          <ul className="task-list">
-            {lines.map((l, i) => l.who === 'jarvis-action' ? (
-              <li key={i} className="task-row">
-                <ActionCard raw={l.text} onDecide={decide} />
-              </li>
-            ) : (
-              <li key={i} className="task-row">
-                <div className="task-main">
-                  <span className="cell-strong">{l.who === 'you' ? 'You' : '✦ Jarvis'}</span>
-                  <span className="task-meta" style={{ whiteSpace: 'pre-wrap' }}>{l.text}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
-}
+      <div className="jarvis-grid">
+        <section className="panel jarvis-convo" aria-label="Conversation">
+          <h2>Conversation</h2>
+          <div className="jarvis-transcript" ref={transcriptRef} tabIndex={0} aria-label="Conversation transcript">
+            {voiceTranscript.length === 0 && !typedReply && !typedBusy && (
+              <p className="muted">Start voice above — or just type below. Everything you say and hear lands here.</p>
+            )}
+            {voiceTranscript.length > 0 && (
+              <ul className="task-list">
+                {voiceTranscript.map((t, i) => (
+                  <li key={i} className="task-row">
+                    <div className="task-main">
+                      <span className="cell-strong">{t.who === 'You' ? 'You' : '✦ Jarvis'}</span>
+                      <span className="task-meta" style={{ whiteSpace: 'pre-wrap' }}>{t.text}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {typedBusy && <p className="muted">Thinking…</p>}
+            {typedReply && (
+              <div className="panel" style={{ margin: 0 }}>
+                <p><b>You:</b> {typedReply.q}</p>
+                <p><b>✦ Assistant:</b> {typedReply.a}</p>
+                {(typedReply.commands || []).map((c) => (
+                  <p key={c.command_id} style={{ marginTop: 4 }}>
+                    {c.undo_available && (
+                      <button
+                        type="button"
+                        className="btn-small"
+                        onClick={async () => {
+                          try { await feed?.undo(c.command_id); } catch { /* 409 shown next poll */ }
+                        }}
+                      >
+                        Undo
+                      </button>
+                    )}
+                  </p>
+                ))}
+                {(typedReply.actions || []).map((a) => (
+                  <p key={a.id || a.title} className="muted">Suggested: {a.title} ({a.action_type}) — approve in Pending proposals.</p>
+                ))}
+              </div>
+            )}
+          </div>
+          <form className="jarvis-inputrow" onSubmit={(e) => { e.preventDefault(); sendTyped(); }}>
+            <input value={typedInput} onChange={(e) => setTypedInput(e.target.value)} placeholder="Ask in plain words…" aria-label="Type a message to the assistant" style={{ flex: 1 }} maxLength={2000} disabled={typedBusy} />
+            <button type="submit" className="btn-primary" disabled={typedBusy || !typedInput.trim()}>Send</button>
+          </form>
+        </section>
 
-function ActionCard({ raw, onDecide }) {
-  const [acts] = useState(() => {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return [];
-    }
-  });
-  const [done, setDone] = useState({});
-  if (!Array.isArray(acts) || acts.length === 0) return null;
-  return (
-    <div className="task-main" style={{ width: '100%' }}>
-      {acts.map((a) => (
-        <div key={a.id} className="panel" style={{ marginTop: 8 }}>
-          <p><b>{a.title}</b> <StatusBadge tone="warn">{a.action_type}</StatusBadge></p>
-          {done[a.id] ? <p className="muted">{done[a.id]}</p> : (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" className="btn-primary" onClick={async () => {
-                await onDecide(a, 'APPROVED');
-                setDone((d) => ({ ...d, [a.id]: 'Approved — applied.' }));
-              }}>Approve</button>
-              <button type="button" className="btn-secondary" onClick={async () => {
-                await onDecide(a, 'REJECTED');
-                setDone((d) => ({ ...d, [a.id]: 'Rejected.' }));
-              }}>Reject</button>
+        <div className="jarvis-rail">
+          <section className="panel">
+            <h2>Status checklist</h2>
+            {checklist.length === 0 ? <p className="muted">Loading…</p> : (
+              <ul className="task-list">
+                {checklist.map((c) => (
+                  <li key={c.label} className="task-row">
+                    <div className="task-main">
+                      <span className="cell-strong">{c.ok ? '✓' : '○'} {c.label}</span>
+                      {c.hint && <span className="task-meta">{c.hint}</span>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="panel">
+            <h2>Try saying</h2>
+            <div className="no-print" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {CHIPS.map((chip) => (
+                <button key={chip} type="button" className="btn-small" onClick={() => sendTyped(chip)} disabled={typedBusy}>{chip}</button>
+              ))}
             </div>
-          )}
+          </section>
+
+          <section className="panel">
+            <h2>Jarvis activity</h2>
+            <ActivityStrip />
+          </section>
+
+          <section className="panel">
+            <h2>Pending proposals</h2>
+            <ProposalMiniList />
+          </section>
         </div>
-      ))}
+      </div>
     </div>
   );
 }

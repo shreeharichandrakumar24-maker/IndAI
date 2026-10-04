@@ -12,7 +12,7 @@ function shortName(m, employees, machines, orders) {
   return bits.join(' · ') || 'Unassigned';
 }
 
-export default function TaskTable({ tasks, loading, employees, machines, orders, onOpen, onAdvance, advancingId }) {
+export default function TaskTable({ tasks, loading, employees, machines, orders, onOpen, onAdvance, advancingId, onSuggest }) {
   if (loading) return <p className="muted">Loading tasks…</p>;
   if (tasks.length === 0) return <p className="muted">No tasks yet. Create them in Orders → Split.</p>;
   return (
@@ -43,6 +43,11 @@ export default function TaskTable({ tasks, loading, employees, machines, orders,
               <td>
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button type="button" className="btn-small" onClick={() => onOpen(t)}>Open</button>
+                  {!t.employee_id && onSuggest && (
+                    <button type="button" className="btn-small" onClick={() => onSuggest(t)} title="Rule-based assignment suggestion">
+                      ✦ Suggest
+                    </button>
+                  )}
                   {next && (
                     <button
                       type="button"

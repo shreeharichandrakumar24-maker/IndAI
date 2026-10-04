@@ -236,7 +236,7 @@ export default function Machines({ focusMachineId }) {
           >
             <h2>Delete Machine</h2>
             <p className="muted">
-              Remove <strong style={{ color: '#e2e8f0' }}>{confirmDelete.name}</strong> (
+              Remove <strong>{confirmDelete.name}</strong> (
               {confirmDelete.machine_type || 'unknown type'}) from the fleet? Its telemetry and
               maintenance records will be permanently deleted, and it will be unlinked from
               related tasks, production runs, incidents and factory memory. This cannot be

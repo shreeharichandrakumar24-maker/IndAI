@@ -23,7 +23,7 @@ function isOpenIncident(i) {
 // Visual floor plan for navigating machines. Deterministic only: node color
 // comes from machine status/health, telemetry freshness, OPEN incidents and
 // the rule-based abnormal check (same thresholds as the backend detector).
-export default function FactoryMap({ onNavigate }) {
+export default function FactoryMap({ onNavigate, focusOrderId }) {
   const [machines, setMachines] = useState([]);
   const [latestById, setLatestById] = useState({});
   const [incidents, setIncidents] = useState([]);
@@ -39,7 +39,7 @@ export default function FactoryMap({ onNavigate }) {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [orderFocus, setOrderFocus] = useState('');
+  const [orderFocus, setOrderFocus] = useState(focusOrderId || '');
   const [selectedCode, setSelectedCode] = useState(null);
 
   const [editMode, setEditMode] = useState(false);
@@ -315,9 +315,9 @@ export default function FactoryMap({ onNavigate }) {
         )}
 
         <p className="muted" style={{ marginTop: 8 }}>
-          Legend: <span style={{ color: '#22c55e' }}>●</span> normal ·{' '}
-          <span style={{ color: '#ef4444' }}>●</span> abnormal / open incident (rule-based, pulsing ring) ·{' '}
-          <span style={{ color: '#64748b' }}>●</span> stale (&gt;{Math.round(STALE_MS / 1000)}s) or no data ·{' '}
+          Legend: <span className="legend-dot legend-ok">●</span> normal ·{' '}
+          <span className="legend-dot legend-bad">●</span> abnormal / open incident (rule-based, pulsing ring) ·{' '}
+          <span className="legend-dot legend-stale">●</span> stale (&gt;{Math.round(STALE_MS / 1000)}s) or no data ·{' '}
           ◆ selected. Last updated {lastRefresh ? lastRefresh.toLocaleTimeString() : '—'}.
         </p>
       </section>

@@ -3,6 +3,15 @@
 .env.*
 !.env.example
 
+# Demo credentials (plain passwords, testing only - never commit)
+docs/demo_worker_credentials.txt
+docs/demo_worker_credentials.txt.bak
+
+# Logs
+*.log
+*.log.*
+*.log.err
+
 # Python
 __pycache__/
 *.py[cod]
@@ -13,6 +22,14 @@ venv/
 node_modules/
 dist/
 build/
+
+# Flutter / Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+mobile_app/build/
+mobile_app/.dart_tool/
 
 # IDEs and OS
 .vscode/

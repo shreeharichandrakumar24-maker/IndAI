@@ -14,19 +14,41 @@ function toneForRole(role) {
   return 'neutral';
 }
 
-export default function Topbar({ title, subtitle, systemStatus, user, onSignOut, onNavigate }) {
+export default function Topbar({ title, subtitle, crumb, systemStatus, user, onSignOut, onNavigate, onMenu, theme, onToggleTheme }) {
   const meta = STATUS_META[systemStatus] || STATUS_META.checking;
   return (
     <header className="topbar">
-      <div className="topbar-titles">
-        <h1>{title}</h1>
-        {subtitle && <p>{subtitle}</p>}
+      <div style={{ display: 'flex', gap: 12, alignItems: 'center', minWidth: 0 }}>
+        {onMenu && (
+          <button type="button" className="hamburger" onClick={onMenu} aria-label="Open navigation">
+            ☰
+          </button>
+        )}
+        <div className="topbar-titles">
+          <h1>{title}</h1>
+          {crumb ? (
+            <p><span className="crumb-section">{crumb}</span><span aria-hidden="true"> · </span>{subtitle}</p>
+          ) : (
+            subtitle && <p>{subtitle}</p>
+          )}
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        {onToggleTheme && (
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={onToggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Light theme' : 'Dark theme'}
+          >
+            {theme === 'dark' ? '☀' : '◐'}
+          </button>
+        )}
         {user && user.role !== 'WORKER' && <NotificationBell onNavigate={onNavigate} />}
         {user && (
-          <span className="muted" title={user.email || ''}>
-            {user.name || user.email} <StatusBadge tone={toneForRole(user.role)}>{user.role}</StatusBadge>{' '}
+          <span className="muted topbar-user" title={user.email || ''}>
+            <span className="user-name">{user.name || user.email} </span><StatusBadge tone={toneForRole(user.role)}>{user.role}</StatusBadge>{' '}
             {onSignOut ? (
               <button type="button" className="btn-small" onClick={onSignOut}>Sign out</button>
             ) : (

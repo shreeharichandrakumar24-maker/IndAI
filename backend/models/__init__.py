@@ -14,5 +14,6 @@ from .models import (
     Notification,
     WorkPlan,
     PlanAssignment,
-    FcmToken
+    FcmToken,
+    WorkerCredential
 )

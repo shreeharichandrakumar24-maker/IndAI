@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DEV ONLY: the dev backend serves plain HTTP (http://10.0.2.2:8000 for the
+     emulator, http://<laptop-LAN-IP>:8000 for a real phone). Production must
+     use HTTPS and set cleartextTrafficPermitted="false" here. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

@@ -5,14 +5,19 @@
 }
 
 :root {
-  font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
   color-scheme: dark;
 }
 
 body {
-  background: #0b1220;
-  color: #e2e8f0;
+  background: var(--bg);
+  color: var(--text);
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
 }
 
 #root {

@@ -87,7 +87,7 @@ export default function Import() {
               <thead><tr><th>Source column</th><th>Target field</th><th>Confidence</th><th>Sample</th></tr></thead>
               <tbody>
                 {analysis.headers.map((h) => (
-                  <tr key={h} style={!mapping[h] ? { background: 'rgba(239,68,68,0.08)' } : undefined}>
+                  <tr key={h} style={!mapping[h] ? { background: 'var(--danger-soft)' } : undefined}>
                     <td className="cell-strong">{h}</td>
                     <td>
                       <select value={mapping[h] || ''} onChange={(e) => setMap(h, e.target.value)}>

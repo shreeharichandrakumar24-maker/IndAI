@@ -5,12 +5,14 @@ import DeepAnalysis from '../DeepAnalysis';
 import { toneForOrderStatus, toneForTaskStatus, formatDateTime } from '../../utils/orders';
 import ManualSplitPanel from './ManualSplitPanel';
 import SmartSplitPanel from './SmartSplitPanel';
+import SuggestDrawer from '../tasks/SuggestDrawer';
 
 export default function OrderDetails({ order, employees, machines, onClose, onOrderChanged }) {
   const [tab, setTab] = useState('manual');
   const [tasks, setTasks] = useState([]);
   const [tasksLoading, setTasksLoading] = useState(true);
   const [tasksError, setTasksError] = useState('');
+  const [suggestTask, setSuggestTask] = useState(null);
 
   const employeeById = Object.fromEntries(employees.map((e) => [e.id, e]));
   const machineById = Object.fromEntries(machines.map((m) => [m.id, m]));
@@ -116,6 +118,11 @@ export default function OrderDetails({ order, employees, machines, onClose, onOr
                 <div className="task-badges">
                   <StatusBadge tone={toneForTaskStatus(t.status)}>{t.status || 'PENDING'}</StatusBadge>
                   <StatusBadge tone="neutral">{t.priority || 'NORMAL'}</StatusBadge>
+                  {!t.employee_id && (
+                    <button type="button" className="btn-small" onClick={() => setSuggestTask(t)} title="Rule-based assignment suggestion">
+                      ✦ Suggest
+                    </button>
+                  )}
                 </div>
               </li>
             ))}
@@ -168,6 +175,14 @@ export default function OrderDetails({ order, employees, machines, onClose, onOr
 
         <DeepAnalysis scope={{ order_id: order.id }} />
       </div>
+
+      {suggestTask && (
+        <SuggestDrawer
+          task={suggestTask}
+          onClose={() => setSuggestTask(null)}
+          onProposed={() => loadTasks()}
+        />
+      )}
     </div>
   );
 }

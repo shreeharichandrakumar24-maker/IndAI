@@ -35,7 +35,10 @@ def _resolve_machine(db: Session, ref: str) -> Optional[Machine]:
         return db.query(Machine).filter(Machine.id == UUID(ref)).first()
     except (ValueError, AttributeError):
         pass
-    code = ref.upper()
+    # Spoken forms ("M 001", "M zero zero one") via the shared normalizer.
+    from backend.services.resolve import normalize_machine_code
+    spoken = normalize_machine_code(ref)
+    code = spoken or ref.upper()
     for m in db.query(Machine).all():
         import re
         mm = re.match(r"^(M-\d{3})", (m.name or "").strip())
@@ -63,6 +66,18 @@ def _resolve_employee(db: Session, ref: str):
         return db.query(Employee).filter(Employee.id == UUID(ref)).first()
     except (ValueError, AttributeError):
         pass
+    # Employee codes ("EMP-001", "emp 001", "employee one") via the shared
+    # normalizer — checked before the name fallback, additive only.
+    from backend.models.models import WorkerCredential
+    from backend.services.resolve import normalize_employee_code
+    code = normalize_employee_code(ref)
+    if code:
+        cred = db.query(WorkerCredential).filter(
+            WorkerCredential.employee_code == code).first()
+        if cred is not None:
+            hit = db.query(Employee).filter(Employee.id == cred.employee_id).first()
+            if hit is not None:
+                return hit
     return db.query(Employee).filter(Employee.name.ilike(f"%{ref}%")).first()
 
 
@@ -295,6 +310,64 @@ def draft_assignment(db: Session, task_name: str = "", skill: str = "",
     }
 
 
+def execute_command(db: Session, action: str = "", text: str = "", employee: str = "",
+                    machine: str = "", order: str = "", task_ref: str = "",
+                    status: str = "", priority: str = "", deadline: str = "",
+                    product: str = "", quantity: str = "", customer: str = "",
+                    autopilot: str = "") -> Dict[str, Any]:
+    """Execute a direct admin command NOW through the same service the voice
+    agent uses (create/assign task, create order, change/reassign/mark task,
+    schedule maintenance). Returns a one-sentence summary plus command_id so
+    the UI can offer Undo. ASK autonomy becomes a proposal server-side."""
+    from backend.services import commands as svc
+    from fastapi import HTTPException
+    a = (action or "").strip().lower()
+    auto = str(autopilot).strip().lower() in ("1", "true", "yes", "y")
+
+    def _int(v):
+        try:
+            return int(float(v))
+        except (TypeError, ValueError):
+            return 0
+
+    try:
+        if a in ("task", "assign_task", "create_task", "draft_assignment"):
+            out = svc.run_create_task(
+                db, text=(text or task_ref or "task"),
+                employee_ref=employee or None, machine_ref=machine or None,
+                order_ref=order or None, priority=priority or None,
+                deadline_text=deadline or None, autopilot=auto,
+                source="text-assistant")
+        elif a in ("order", "create_order"):
+            out = svc.run_create_order(
+                db, product=product or text or "General", quantity=_int(quantity),
+                customer=customer or None, autopilot=auto, source="text-assistant")
+        elif a in ("change", "change_task", "reassign", "assign"):
+            out = svc.run_change(
+                db, task_ref=task_ref or None, employee_ref=employee or None,
+                machine_ref=machine or None, deadline_text=deadline or None,
+                priority=priority or None, status=status or None,
+                autopilot=auto, source="text-assistant")
+        elif a in ("maintenance", "schedule_maintenance"):
+            out = svc.run_maintenance(
+                db, machine_ref=machine or None, issue=text or None,
+                autopilot=auto, source="text-assistant")
+        else:
+            return {"summary": f"Unknown command action '{action}'.",
+                    "error": "bad action"}
+    except HTTPException as e:
+        d = e.detail
+        if isinstance(d, dict):
+            return {"summary": d.get("question") or "I need one more detail.",
+                    "needs_question": d}
+        return {"summary": str(d)}
+    except Exception as e:  # never crash the assistant loop
+        return {"summary": f"Command failed: {str(e)[:150]}"}
+    out = dict(out)
+    out["summary"] = out.get("summary") or "Done."
+    return out
+
+
 TOOLS = {
     "factory_overview": (factory_overview, []),
     "list_machines": (list_machines, []),
@@ -306,6 +379,10 @@ TOOLS = {
     "get_employee_workload": (get_employee_workload, ["employee_ref"]),
     "search_factory_memory": (search_factory_memory, ["query", "machine", "order"]),
     "draft_assignment": (draft_assignment, ["task_name", "skill", "worker", "machine"]),
+    "execute_command": (execute_command, [
+        "action", "text", "employee", "machine", "order", "task_ref",
+        "status", "priority", "deadline", "product", "quantity",
+        "customer", "autopilot"]),
 }
 
 

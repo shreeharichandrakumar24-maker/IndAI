@@ -7,6 +7,7 @@ import StatusBadge from '../components/StatusBadge';
 import TaskFilters from '../components/tasks/TaskFilters';
 import TaskTable from '../components/tasks/TaskTable';
 import TaskForm from '../components/tasks/TaskForm';
+import SuggestDrawer from '../components/tasks/SuggestDrawer';
 import { formatDateTime, isOpenTask, toneForTaskStatus } from '../components/tasks/taskWorkflow';
 
 export default function Tasks({ onNavigate }) {
@@ -31,6 +32,7 @@ export default function Tasks({ onNavigate }) {
   const [formError, setFormError] = useState('');
 
   const [selected, setSelected] = useState(null);
+  const [suggestTask, setSuggestTask] = useState(null);
   const [advancingId, setAdvancingId] = useState(null);
   const [actionError, setActionError] = useState('');
 
@@ -194,9 +196,18 @@ export default function Tasks({ onNavigate }) {
             tasks={visible} loading={loading && !loadError}
             employees={empById} machines={machById} orders={ordById}
             onOpen={setSelected} onAdvance={handleAdvance} advancingId={advancingId}
+            onSuggest={setSuggestTask}
           />
         </div>
       </section>
+
+      {suggestTask && (
+        <SuggestDrawer
+          task={suggestTask}
+          onClose={() => setSuggestTask(null)}
+          onProposed={() => load(true)}
+        />
+      )}
 
       {selected && (
         <div className="modal-backdrop" onClick={() => setSelected(null)}>
