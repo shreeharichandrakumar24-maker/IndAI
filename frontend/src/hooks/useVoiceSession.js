@@ -77,8 +77,20 @@ export default function useVoiceSession() {
     handleRoomDisconnected();
   }, [handleRoomDisconnected]);
 
+  const handleRoomError = useCallback((message) => {
+    clearTimer();
+    setAgentJoined(false);
+    setError(message || 'Voice connection lost. Check the network and press Start voice to reconnect.');
+    setPhase('error');
+  }, []);
+
+  const retry = useCallback(async () => {
+    await start();
+  }, [start]);
+
   return {
     phase, creds, error, muted, setMuted, agentJoined,
-    start, end, handleRoomConnected, handleAgentSeen, handleRoomDisconnected,
+    start, end, retry, handleRoomConnected, handleAgentSeen, handleRoomDisconnected,
+    handleRoomError,
   };
 }

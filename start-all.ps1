@@ -43,6 +43,8 @@ if (Test-Path -LiteralPath $je) {
 }
 if ($voiceReady) {
   Write-Output '[4/4] voice agent (keys present, opening its window) ...'
+  # start-voice.ps1 stops any previous Jarvis agent (by command line) first,
+  # so a fresh start-all never leaves two agents sharing one room.
   Start-Process powershell -ArgumentList '-NoExit', '-Command', "& '$root\start-voice.ps1'"
 } else {
   Write-Output 'Voice agent skipped (Jarvis/.env.local missing or incomplete). Run .\start-voice.ps1 once keys are added.'

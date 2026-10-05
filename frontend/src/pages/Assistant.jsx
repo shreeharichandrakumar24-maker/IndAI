@@ -5,6 +5,8 @@ import EmployeeCode from '../components/EmployeeCode';
 import VoicePicker from '../components/VoicePicker';
 import { useCommandFeed } from '../components/voice/CommandFeed';
 import { isVoiceOn, setVoiceOn as persistVoice, speakText, stopSpeaking as stopVoice } from '../services/voice';
+import { parseNavigationRequest, validateUiCommand } from '../components/voice/uiCommand';
+import { NAV_ITEMS } from '../config/nav';
 
 const CHIPS = [
   'What is happening in production?',
@@ -17,7 +19,7 @@ const CHIPS = [
 // Jarvis-style assistant (mobile-app Phase 4): bounded tool-loop chat with a
 // visible "Data used" trace and Approve/Reject action cards. Every AI message
 // is labeled; proposed actions execute only via the decision endpoint.
-export default function Assistant() {
+export default function Assistant({ onUiCommand }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -113,6 +115,26 @@ export default function Assistant() {
     setInput('');
     setHeardNote('');
     stopSpeaking();
+    // Typed navigation ("open machines"): resolve with the shared alias map,
+    // then run the SAME strict validator + handler as the voice RPC path.
+    const nav = parseNavigationRequest(msg);
+    if (nav && onUiCommand) {
+      const verdict = validateUiCommand(nav.filter
+        ? { action: 'navigate', page: nav.page, filter: nav.filter }
+        : { action: 'navigate', page: nav.page });
+      if (verdict.ok) {
+        let res = 'ok';
+        try { res = (await onUiCommand(verdict.action, verdict.args)) || 'ok'; }
+        catch (err) { res = `rejected: ${err?.message || err}`; }
+        const label = NAV_ITEMS.find((n) => n.id === nav.page)?.label || nav.page;
+        const reply = res === 'ok' ? `Opening ${label}.` : String(res).replace(/^rejected: ?/, '');
+        setMessages((ms) => {
+          speak(reply, ms.length + 1);
+          return [...ms, { role: 'user', text: msg }, { role: 'ai', text: reply, trace: [], actions: [], commands: [] }];
+        });
+        return;
+      }
+    }
     setBusy(true);
     const payload = [...historyPayload(), { role: 'user', content: msg }];
     setMessages((ms) => [...ms, { role: 'user', text: msg }]);

@@ -22,8 +22,15 @@ const EMPTY_ITEM = { task_name: '', required_skill: '', machine_type: '', priori
 // Manager console for work plans (Phase 7 + F6): draft items -> approve
 // (creates tasks) -> AI-suggest pairings -> Apply per item -> dispatch.
 // Progress tracker + Live plan tabs join live task state on every read.
-export default function Plans({ onNavigate }) {
+export default function Plans({ onNavigate, presetFilter }) {
   const [tab, setTab] = useState('plans');
+  // Voice/typed preset from navigate('plans', {filter}): opens the right tab
+  // ('plans' | 'progress' | 'live') and 'overdue' = progress + overdue only.
+  useEffect(() => {
+    if (!presetFilter) return;
+    if (presetFilter === 'overdue') { setTab('progress'); setOverdueOnly(true); }
+    else if (['plans', 'progress', 'live'].includes(presetFilter)) setTab(presetFilter);
+  }, [presetFilter]);
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

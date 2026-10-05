@@ -1,0 +1,287 @@
+{
+  "$comment": "Single source of truth for voice/text page aliases + per-page filter presets. Page ids MUST exist in frontend/src/config/nav.js (the frontend drops unknown ids; Python resolves against this file). Labels mirror nav.js for the spoken side.",
+  "pages": {
+    "dashboard": {
+      "label": "Dashboard",
+      "aliases": {
+        "dashboard": null,
+        "home": null,
+        "overview": null,
+        "command center": null,
+        "main page": null,
+        "dashboard page": null
+      }
+    },
+    "map": {
+      "label": "Factory Map",
+      "aliases": {
+        "map": null,
+        "factory map": null,
+        "floor map": null,
+        "factory floor": null,
+        "floor plan": null,
+        "shop floor": null,
+        "floor": null,
+        "map page": null
+      }
+    },
+    "profile": {
+      "label": "Factory Profile",
+      "aliases": {
+        "profile": null,
+        "factory profile": null,
+        "settings": null,
+        "factory settings": null,
+        "factory setup": null,
+        "setup": null,
+        "profile page": null
+      }
+    },
+    "import": {
+      "label": "Import",
+      "aliases": {
+        "import": null,
+        "import data": null,
+        "upload": null,
+        "upload data": null,
+        "csv": null,
+        "excel": null,
+        "spreadsheet": null,
+        "import page": null
+      }
+    },
+    "employees": {
+      "label": "Employees",
+      "aliases": {
+        "employees": null,
+        "employees tab": null,
+        "employee": null,
+        "employee tab": null,
+        "employee list": null,
+        "staff": null,
+        "workers": null,
+        "people": null,
+        "workforce": null,
+        "team": null,
+        "employees page": null
+      }
+    },
+    "tasks": {
+      "label": "Tasks",
+      "aliases": {
+        "tasks": null,
+        "tasks tab": null,
+        "task list": null,
+        "jobs": null,
+        "to-do": null,
+        "todo": null,
+        "to do": null,
+        "assignments": null,
+        "work list": null,
+        "tasks page": null
+      }
+    },
+    "machines": {
+      "label": "Machines",
+      "aliases": {
+        "machines": null,
+        "machines tab": null,
+        "machine": null,
+        "machine tab": null,
+        "machine page": null,
+        "machine list": null,
+        "equipment": null,
+        "machines page": null
+      }
+    },
+    "orders": {
+      "label": "Orders",
+      "aliases": {
+        "orders": null,
+        "orders tab": null,
+        "order": null,
+        "order tab": null,
+        "customer orders": null,
+        "order list": null,
+        "sales orders": null,
+        "demand": null,
+        "orders page": null
+      }
+    },
+    "production": {
+      "label": "Production",
+      "aliases": {
+        "production": null,
+        "production page": null,
+        "production runs": null,
+        "runs": null,
+        "manufacturing": null,
+        "production tab": null
+      }
+    },
+    "iot": {
+      "label": "IoT Monitoring",
+      "aliases": {
+        "iot": null,
+        "iot monitoring": null,
+        "sensors": null,
+        "monitoring": null,
+        "telemetry": null,
+        "sensor data": null,
+        "sensor readings": null,
+        "iot page": null
+      }
+    },
+    "simulator": {
+      "label": "Simulator",
+      "aliases": {
+        "simulator": null,
+        "floor simulator": null,
+        "demo": null,
+        "demo telemetry": null,
+        "simulator page": null
+      }
+    },
+    "incidents": {
+      "label": "Incidents",
+      "aliases": {
+        "incidents": null,
+        "incident list": null,
+        "alerts": null,
+        "issues": null,
+        "problems": null,
+        "alarms": null,
+        "warnings": null,
+        "open incidents": "OPEN",
+        "unresolved incidents": "OPEN",
+        "incidents page": null
+      }
+    },
+    "memory": {
+      "label": "Factory Memory",
+      "aliases": {
+        "memory": null,
+        "factory memory": null,
+        "history": null,
+        "decisions": null,
+        "event log": null,
+        "memory page": null
+      }
+    },
+    "reports": {
+      "label": "Reports",
+      "aliases": {
+        "reports": null,
+        "report": null,
+        "weekly report": null,
+        "reports page": null
+      }
+    },
+    "plans": {
+      "label": "Work Plans",
+      "aliases": {
+        "plans": null,
+        "plans tab": null,
+        "work plans": null,
+        "work plan": null,
+        "plan": null,
+        "progress tracker": "progress",
+        "progress": "progress",
+        "live plan": "live",
+        "live plans": "live",
+        "plans page": null
+      }
+    },
+    "simulate": {
+      "label": "What-If",
+      "aliases": {
+        "what-if": null,
+        "what if": null,
+        "simulate": null,
+        "scenarios": null,
+        "scenario": null,
+        "simulation": null,
+        "what-if page": null
+      }
+    },
+    "users": {
+      "label": "Users",
+      "aliases": {
+        "users": null,
+        "accounts": null,
+        "user management": null,
+        "roles": null,
+        "admin users": null,
+        "users page": null
+      }
+    },
+    "ai": {
+      "label": "AI Assistant",
+      "aliases": {
+        "assistant": null,
+        "ai assistant": null,
+        "chat": null,
+        "ai chat": null,
+        "text assistant": null,
+        "assistant page": null
+      }
+    },
+    "jarvis": {
+      "label": "Jarvis",
+      "aliases": {
+        "jarvis": null,
+        "voice": null,
+        "voice agent": null,
+        "voice assistant": null,
+        "voice page": null
+      }
+    }
+  },
+  "page_filters": {
+    "incidents": {
+      "OPEN": { "speak": "open only", "aliases": ["open", "unresolved", "active"] },
+      "IN_PROGRESS": { "speak": "in-progress only", "aliases": ["in progress", "working"] },
+      "RESOLVED": { "speak": "resolved only", "aliases": ["resolved", "closed", "done"] }
+    },
+    "tasks": {
+      "PENDING": { "speak": "pending only", "aliases": ["pending", "open", "not started"] },
+      "IN_PROGRESS": { "speak": "in progress only", "aliases": ["in progress", "running", "started"] },
+      "DONE": { "speak": "completed only", "aliases": ["done", "completed", "finished"] }
+    },
+    "orders": {
+      "PENDING": { "speak": "pending only", "aliases": ["pending", "new"] },
+      "IN_PROGRESS": { "speak": "in progress only", "aliases": ["in progress", "active"] },
+      "COMPLETED": { "speak": "completed only", "aliases": ["completed", "done"] },
+      "CANCELLED": { "speak": "cancelled only", "aliases": ["cancelled", "canceled"] }
+    },
+    "production": {
+      "PLANNED": { "speak": "planned only", "aliases": ["planned", "queued"] },
+      "RUNNING": { "speak": "running only", "aliases": ["running", "live"] },
+      "IN_PROGRESS": { "speak": "in progress only", "aliases": ["in progress"] },
+      "COMPLETED": { "speak": "completed only", "aliases": ["completed", "done"] },
+      "PAUSED": { "speak": "paused only", "aliases": ["paused", "on hold"] },
+      "CANCELLED": { "speak": "cancelled only", "aliases": ["cancelled", "canceled"] }
+    },
+    "machines": {
+      "OPERATIONAL": { "speak": "operational only", "aliases": ["operational", "running", "ok"] },
+      "MAINTENANCE": { "speak": "maintenance only", "aliases": ["maintenance", "in maintenance"] },
+      "STOPPED": { "speak": "stopped only", "aliases": ["stopped", "down"] }
+    },
+    "employees": {
+      "ACTIVE": { "speak": "active only", "aliases": ["active", "on duty"] },
+      "INACTIVE": { "speak": "inactive only", "aliases": ["inactive", "not active"] }
+    },
+    "map": {
+      "abnormal": { "speak": "abnormal machines", "aliases": ["abnormal", "alarmed"] },
+      "running": { "speak": "running machines", "aliases": ["running"] },
+      "idle": { "speak": "idle machines", "aliases": ["idle"] },
+      "stale": { "speak": "stale machines", "aliases": ["stale", "offline"] }
+    },
+    "plans": {
+      "plans": { "speak": "plans tab", "aliases": ["plans", "drafts"] },
+      "progress": { "speak": "progress tracker", "aliases": ["progress", "progress tracker"] },
+      "live": { "speak": "live plan", "aliases": ["live", "live plan"] },
+      "overdue": { "speak": "overdue items only", "aliases": ["overdue", "behind schedule"] }
+    }
+  }
+}

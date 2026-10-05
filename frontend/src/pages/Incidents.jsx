@@ -8,13 +8,15 @@ import IncidentTable from '../components/incidents/IncidentTable';
 import IncidentDetails from '../components/incidents/IncidentDetails';
 import { isActiveIncident } from '../components/incidents/incidentWorkflow';
 
-export default function Incidents({ focusIncidentId }) {
+export default function Incidents({ focusIncidentId, presetFilter }) {
   const [incidents, setIncidents] = useState([]);
   const [machines, setMachines] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // Voice/typed preset from navigate(page, {filter}).
+  useEffect(() => { if (presetFilter) setStatusFilter(presetFilter); }, [presetFilter]);
   const [severityFilter, setSeverityFilter] = useState('');
   const [machineFilter, setMachineFilter] = useState('');
 

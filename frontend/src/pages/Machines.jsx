@@ -8,12 +8,14 @@ import MachineTable from '../components/machines/MachineTable';
 import MachineForm from '../components/machines/MachineForm';
 import MachineDetails from '../components/machines/MachineDetails';
 
-export default function Machines({ focusMachineId }) {
+export default function Machines({ focusMachineId, presetFilter }) {
   const [machines, setMachines] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // Voice/typed preset from navigate(page, {filter}).
+  useEffect(() => { if (presetFilter) setStatusFilter(presetFilter); }, [presetFilter]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);

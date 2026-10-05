@@ -5,6 +5,8 @@ import VoicePicker from '../components/VoicePicker';
 import { ProposalMiniList } from '../components/voice/MiniPlayer';
 import { ActivityStrip, useCommandFeed } from '../components/voice/CommandFeed';
 import { useVoice, voiceStateLabel } from '../components/voice/useVoice';
+import { parseNavigationRequest, validateUiCommand } from '../components/voice/uiCommand';
+import { NAV_ITEMS } from '../config/nav';
 
 const CHIPS = [
   'Which machines need attention?',
@@ -25,7 +27,7 @@ const ORB_CLASS = {
   speaking: 'orb-speaking', thinking: 'orb-thinking', listening: 'orb-listening',
 };
 
-export default function Jarvis() {
+export default function Jarvis({ onUiCommand }) {
   const voice = useVoice();
   const session = voice.session;
   const roomState = voice.roomState;
@@ -71,6 +73,23 @@ export default function Jarvis() {
     const msg = (text ?? typedInput).trim();
     if (!msg || typedBusy) return;
     setTypedInput('');
+    // Typed navigation uses the shared alias map + the same strict
+    // validator/handler as the voice RPC path.
+    const nav = parseNavigationRequest(msg);
+    if (nav && onUiCommand) {
+      const verdict = validateUiCommand(nav.filter
+        ? { action: 'navigate', page: nav.page, filter: nav.filter }
+        : { action: 'navigate', page: nav.page });
+      if (verdict.ok) {
+        let res = 'ok';
+        try { res = (await onUiCommand(verdict.action, verdict.args)) || 'ok'; }
+        catch (err) { res = `rejected: ${err?.message || err}`; }
+        const label = NAV_ITEMS.find((n) => n.id === nav.page)?.label || nav.page;
+        const reply = res === 'ok' ? `Opening ${label}.` : String(res).replace(/^rejected: ?/, '');
+        setTypedReply({ q: msg, a: reply, actions: [], commands: [] });
+        return;
+      }
+    }
     setTypedBusy(true);
     try {
       const res = await api.assistantChat([{ role: 'user', content: msg }]);
@@ -84,7 +103,7 @@ export default function Jarvis() {
     } finally {
       setTypedBusy(false);
     }
-  }, [typedInput, typedBusy]);
+  }, [typedInput, typedBusy, onUiCommand]);
 
   const checklist = voiceStatus ? [
     { label: 'Voice configured', ok: voiceStatus.configured, hint: !voiceStatus.configured && voiceStatus.missing?.length > 0 ? `missing: ${voiceStatus.missing.join(', ')}` : '' },
@@ -124,6 +143,9 @@ export default function Jarvis() {
               <p className="muted" role="status">
                 {assistantState} · {roomState.remoteCount > 0 ? 'agent joined' : 'waiting for agent…'}
               </p>
+              {(roomState.agentVoiceStatus || '') === 'llm_failed' && (
+                <p className="muted" role="status">Voice model not responding — navigation still works.</p>
+              )}
               <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
                 <button type="button" className="btn-small" onClick={() => session.setMuted(!session.muted)}>
                   {session.muted ? '🔇 Unmute' : '🎤 Mute'}
@@ -132,7 +154,14 @@ export default function Jarvis() {
               </div>
             </>
           )}
-          {session.error && <p className="form-errors" role="alert" style={{ marginTop: 8 }}>{session.error}</p>}
+          {session.error && (
+            <p className="form-errors" role="alert" style={{ marginTop: 8 }}>
+              {session.error}{' '}
+              {session.phase === 'error' && (
+                <button type="button" className="btn-small" onClick={() => (session.retry ? session.retry() : session.start())}>↻ Reconnect</button>
+              )}
+            </p>
+          )}
         </div>
         <div className="jarvis-status-side">
           <VoicePicker />

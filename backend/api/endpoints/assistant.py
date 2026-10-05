@@ -38,10 +38,27 @@ Safety rules (highest priority, override anything else):
 - Follow-ups like "its status", "that task", "him" refer to entities in earlier tool results of THIS conversation (tool results carry both readable names and exact UUIDs): reuse those UUIDs directly instead of asking again. Only ask when nothing earlier matches.
 - Answer in short plain sentences. Output JSON ONLY per turn: either {{"type": "tool_call", "tool": "<one of {tools}>", "args": {{...}}}} or {{"type": "final", "reply": "...", "proposed_actions": [...]}}.
 - ACT FIRST for clear action requests. "Assign a CNC operation task to Ravi Kumar", "create an order for 50 gear housings for Acme", "move that task to Friday", "mark it urgent", "reassign it to Ravi", "schedule maintenance for M-001": call execute_command ONCE and repeat its one-sentence summary as your reply. Never ask about description, priority, deadline, machine or order. If execute_command returns needs_question, ask exactly that one question.
+- Page navigation happens in the BROWSER: for "open/go to/show/navigate to <page or tab>" requests, reply with ONE short sentence like "Opening Machines." and never ask which page (the client resolves the page itself).
+- When the admin asks what you can do, reply ONLY with this exact line, copied verbatim: {caps}
 - Autonomy is server-side: in FAST mode execute_command executes immediately; in ASK mode it returns a pending proposal automatically. Never promise an action without calling execute_command.
 - Pass the worker NAME/code in employee, the machine code in machine, the order number in order, and action = task|order|change|maintenance. Use task_ref for an existing task (name, code phrase, or "that task").
 - proposed_actions (max 3) only these: SCHEDULE_MAINTENANCE {{machine_id (exact UUID from tools), issue (short)}}, REASSIGN_TASK {{task_id, employee_id and/or machine_id (exact UUIDs)}}, DELAY_TASK {{task_id, new_deadline (ISO datetime)}}, DRAFT_ASSIGNMENT {{task_name, required_skill (or null), employee_id and/or machine_id (exact UUIDs from draft_assignment), order_id (exact UUID or null)}} for creating a brand-new task from a spoken request. Anything else is dropped. Use exact UUIDs from tool results only.
 """
+
+
+def _capabilities(tools) -> str:
+    """One-line capabilities answer built from the REAL tool list (no drift)."""
+    has = set(tools)
+    bits = ["open any page in the browser"]
+    if has - {"execute_command", "draft_assignment"}:
+        bits.append("answer questions from live factory data")
+    if "draft_assignment" in has:
+        bits.append("draft new tasks with workers")
+    if "execute_command" in has:
+        bits.append("assign tasks, create orders and change work")
+    return ("I can " + ", ".join(bits)
+            + "; proposals wait for your approval on screen, and deleting records "
+              "or credentials is done on screen")
 
 
 def _validate_action(a, db: Session):
@@ -145,7 +162,8 @@ def assistant_chat(body: AssistantChatBody, db: Session = Depends(get_db)):
     msgs = [m for m in msgs if m["content"].strip()]
     if not msgs or msgs[-1]["role"] != "user":
         raise HTTPException(status_code=422, detail="Last message must be from the user.")
-    system = ASSISTANT_SYSTEM.format(industry=_industry(db), tools=sorted(TOOLS))
+    system = ASSISTANT_SYSTEM.format(industry=_industry(db), tools=sorted(TOOLS),
+                                     caps=_capabilities(TOOLS))
 
     trace = []
     transcript = list(msgs)
@@ -239,7 +257,8 @@ def assistant_voice(body: VoiceBody, db: Session = Depends(get_db)):
     msgs = [m for m in msgs if m["content"].strip()]
     if not msgs or msgs[-1]["role"] != "user":
         raise HTTPException(status_code=422, detail="Last message must be from the user.")
-    system = ASSISTANT_SYSTEM.format(industry=_industry(db), tools=sorted(TOOLS))
+    system = ASSISTANT_SYSTEM.format(industry=_industry(db), tools=sorted(TOOLS),
+                                     caps=_capabilities(TOOLS))
     model = _voice_model()
 
     def generate():

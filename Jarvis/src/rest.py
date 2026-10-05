@@ -6,7 +6,9 @@ import os
 import httpx
 
 BASE = os.environ.get("INDAI_API_URL", "http://127.0.0.1:8000/api").rstrip("/")
-TIMEOUT = 8.0
+# Backend tool-call bound: keeps every voice-tool REST call inside the turn
+# watchdog budget (slow backend -> short spoken error, never silence).
+TIMEOUT = 6.0
 
 
 def _url(path: str) -> str:

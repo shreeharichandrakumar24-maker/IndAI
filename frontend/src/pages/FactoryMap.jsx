@@ -23,7 +23,7 @@ function isOpenIncident(i) {
 // Visual floor plan for navigating machines. Deterministic only: node color
 // comes from machine status/health, telemetry freshness, OPEN incidents and
 // the rule-based abnormal check (same thresholds as the backend detector).
-export default function FactoryMap({ onNavigate, focusOrderId }) {
+export default function FactoryMap({ onNavigate, focusOrderId, presetFilter }) {
   const [machines, setMachines] = useState([]);
   const [latestById, setLatestById] = useState({});
   const [incidents, setIncidents] = useState([]);
@@ -39,6 +39,8 @@ export default function FactoryMap({ onNavigate, focusOrderId }) {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // Voice/typed preset from navigate(page, {filter}).
+  useEffect(() => { if (presetFilter) setStatusFilter(presetFilter); }, [presetFilter]);
   const [orderFocus, setOrderFocus] = useState(focusOrderId || '');
   const [selectedCode, setSelectedCode] = useState(null);
 

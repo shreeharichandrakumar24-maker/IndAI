@@ -8,12 +8,14 @@ import EmployeeTable from '../components/employees/EmployeeTable';
 import EmployeeForm from '../components/employees/EmployeeForm';
 import WorkerLoginModal from '../components/employees/WorkerLoginModal';
 
-export default function Employees() {
+export default function Employees({ presetFilter }) {
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // Voice/typed preset from navigate(page, {filter}).
+  useEffect(() => { if (presetFilter) setStatusFilter(presetFilter); }, [presetFilter]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);

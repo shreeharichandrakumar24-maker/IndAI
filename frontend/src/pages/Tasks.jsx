@@ -10,7 +10,7 @@ import TaskForm from '../components/tasks/TaskForm';
 import SuggestDrawer from '../components/tasks/SuggestDrawer';
 import { formatDateTime, isOpenTask, toneForTaskStatus } from '../components/tasks/taskWorkflow';
 
-export default function Tasks({ onNavigate }) {
+export default function Tasks({ onNavigate, presetFilter }) {
   const [tasks, setTasks] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [machines, setMachines] = useState([]);
@@ -21,6 +21,8 @@ export default function Tasks({ onNavigate }) {
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // Voice/typed preset from navigate(page, {filter}).
+  useEffect(() => { if (presetFilter) setStatusFilter(presetFilter); }, [presetFilter]);
   const [priorityFilter, setPriorityFilter] = useState('');
   const [assigneeFilter, setAssigneeFilter] = useState('');
   const [machineFilter, setMachineFilter] = useState('');

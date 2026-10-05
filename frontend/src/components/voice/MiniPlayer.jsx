@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../../services/api';
 import StatusBadge from '../StatusBadge';
 import EmployeeCode from '../EmployeeCode';
@@ -64,10 +64,24 @@ export function ProposalMiniList() {
 // Persistent mini player: one voice entry point on every page. It lives in
 // a fixed dock (bottom-right default, bottom-center optional) and is never
 // draggable. Collapsed it is an orb pill; expanded it is a compact card
-// with live state, transcript, proposals and session controls.
-export default function MiniPlayer({ hidden, onOpenJarvis }) {
+// with live state, transcript, proposals and session controls. When the app
+// navigates away from the Jarvis page while connected (handoffKey bump),
+// the card auto-expands with a collapse-into-dock transition, stays open
+// while the agent speaks or ~8s after activity, then returns to the orb
+// unless pinned open.
+const PIN_KEY = 'indai.miniplayer.pin';
+const HANDOFF_MS = 8000;
+export default function MiniPlayer({ hidden, onOpenJarvis, handoffKey }) {
   const voice = useVoice();
   const [expanded, setExpanded] = useState(false);
+  const [pinned, setPinned] = useState(() => {
+    try {
+      return window.localStorage.getItem(PIN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const [handoff, setHandoff] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
   const [dock, setDock] = useState(() => {
     try {
@@ -76,10 +90,12 @@ export default function MiniPlayer({ hidden, onOpenJarvis }) {
       return 'br';
     }
   });
+  const lastActiveAt = useRef(0);
 
   const session = voice?.session;
   const roomState = voice?.roomState || { assistantState: 'idle', remoteCount: 0, transcript: [] };
   const voiceStatus = voice?.voiceStatus;
+  const inSession = !!(session?.creds && session?.phase !== 'idle' && session?.phase !== 'error');
 
   // Pending-proposals badge (existing endpoint, light poll).
   useEffect(() => {
@@ -102,13 +118,59 @@ export default function MiniPlayer({ hidden, onOpenJarvis }) {
     } catch { /* private mode: nothing to clean */ }
   }, []);
 
-  // Esc collapses the card.
+  // Esc collapses the card (unless pinned).
   useEffect(() => {
     if (!expanded) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') setExpanded(false); };
+    const onKey = (e) => { if (e.key === 'Escape' && !pinned) setExpanded(false); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [expanded]);
+  }, [expanded, pinned]);
+
+  // Hand-off: leaving the Jarvis page while connected expands the card.
+  const seenHandoff = useRef(0);
+  useEffect(() => {
+    if (!handoffKey || handoffKey === seenHandoff.current) return;
+    seenHandoff.current = handoffKey;
+    if (!inSession) return;
+    let reduced = false;
+    try {
+      reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    } catch { /* ignore */ }
+    setExpanded(true);
+    lastActiveAt.current = Date.now();
+    if (!reduced) {
+      setHandoff(true);
+      const t = setTimeout(() => setHandoff(false), 600);
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [handoffKey, inSession]);
+
+  // Track voice activity: transcript growth, speaking, or session start.
+  const activityKey = `${roomState.transcript.length}|${roomState.assistantState}|${session?.phase}`;
+  useEffect(() => {
+    if (inSession) lastActiveAt.current = Date.now();
+  }, [activityKey, inSession]);
+
+  // Idle collapse: speaking keeps it open; otherwise ~8s after the last
+  // activity it returns to the orb (pinned cards stay open).
+  useEffect(() => {
+    if (!expanded || pinned || !inSession) return undefined;
+    const t = setInterval(() => {
+      const speaking = roomState.assistantState === 'speaking';
+      if (!speaking && Date.now() - lastActiveAt.current > HANDOFF_MS) {
+        setExpanded(false);
+      }
+    }, 1000);
+    return () => clearInterval(t);
+  }, [expanded, pinned, inSession, roomState.assistantState]);
+
+  const setPinnedPersist = (p) => {
+    setPinned(p);
+    try {
+      window.localStorage.setItem(PIN_KEY, p ? '1' : '0');
+    } catch { /* private mode: state just won't persist */ }
+  };
 
   const setDockPersist = (d) => {
     setDock(d === 'bc' ? 'bc' : 'br');
@@ -126,9 +188,11 @@ export default function MiniPlayer({ hidden, onOpenJarvis }) {
         : roomState.assistantState === 'thinking' ? 'thinking'
         : roomState.assistantState === 'listening' ? 'listening' : 'live')
       : (session.phase === 'idle' ? 'idle' : 'connecting');
-  const inSession = session.creds && session.phase !== 'idle' && session.phase !== 'error';
+  const connected = !!inSession;
+  const modelDown = (roomState.agentVoiceStatus || '') === 'llm_failed';
   const notReady = voiceStatus && !voiceStatus.configured;
   const dockClass = dock === 'bc' ? 'dock-bc' : 'dock-br';
+  const lastTwo = (roomState.transcript || []).slice(-2);
 
   if (!expanded) {
     return (
@@ -136,8 +200,8 @@ export default function MiniPlayer({ hidden, onOpenJarvis }) {
         <button
           type="button"
           className="mini-orb-btn"
-          aria-label={inSession ? `Jarvis mini player, ${label}. Activate to expand.` : 'Open Jarvis mini player'}
-          onClick={() => setExpanded(true)}
+          aria-label={connected ? `Jarvis mini player, ${label}. Activate to expand.` : 'Open Jarvis mini player'}
+          onClick={() => { setExpanded(true); lastActiveAt.current = Date.now(); }}
         >
           <span className={`mini-orb orb-${orbState}`} aria-hidden="true" />
           {pendingCount > 0 && (
@@ -149,7 +213,7 @@ export default function MiniPlayer({ hidden, onOpenJarvis }) {
   }
 
   return (
-    <div className={`miniplayer mini-card ${dockClass}`} role="dialog" aria-label="Jarvis mini player">
+    <div className={`miniplayer mini-card ${dockClass}${handoff ? ' handoff' : ''}`} role="dialog" aria-label="Jarvis mini player">
       <div className="mini-head">
         <span className={`mini-orb orb-${orbState} small`} aria-hidden="true" />
         <strong>Jarvis · {label}</strong>
@@ -175,15 +239,30 @@ export default function MiniPlayer({ hidden, onOpenJarvis }) {
             Center
           </button>
         </span>
+        <button
+          type="button"
+          className={`btn-small${pinned ? ' on' : ''}`}
+          aria-pressed={pinned}
+          aria-label={pinned ? 'Unpin mini player' : 'Pin mini player open'}
+          title={pinned ? 'Unpin (auto-collapse)' : 'Pin open'}
+          onClick={() => setPinnedPersist(!pinned)}
+        >
+          {pinned ? '📌' : '📍'}
+        </button>
         <span className="mini-head-actions">
           <button type="button" className="btn-small" onClick={() => setExpanded(false)} aria-label="Minimize mini player">–</button>
         </span>
       </div>
       <div className="mini-body">
-        {!inSession ? (
+        {!connected ? (
           <>
             <p className="muted">Talk to Jarvis hands-free. Starts a fresh room each time.</p>
-            {notReady ? (
+            {session.phase === 'error' ? (
+              <>
+                <p className="form-errors" role="alert">{session.error || 'Voice connection lost.'}</p>
+                <button type="button" className="btn-primary" onClick={() => (session.retry ? session.retry() : session.start())}>↻ Reconnect</button>
+              </>
+            ) : notReady ? (
               <p className="form-errors" role="status">
                 Voice not configured
                 {voiceStatus?.missing?.length > 0 ? ` (missing: ${voiceStatus.missing.join(', ')} in backend/.env)` : ''}.
@@ -198,14 +277,20 @@ export default function MiniPlayer({ hidden, onOpenJarvis }) {
               <StatusBadge tone={orbState === 'speaking' ? 'info' : orbState === 'listening' ? 'ok' : 'neutral'}>
                 {label}
               </StatusBadge>
+              {pendingCount > 0 && (
+                <StatusBadge tone="warn">{pendingCount} proposal{pendingCount === 1 ? '' : 's'}</StatusBadge>
+              )}
               <button type="button" className="btn-small" onClick={() => session.setMuted(!session.muted)}>
                 {session.muted ? '🔇 Unmute' : '🎤 Mute'}
               </button>
               <button type="button" className="btn-small" onClick={session.end}>⏹ End</button>
             </div>
-            {roomState.transcript.length > 0 && (
+            {modelDown && (
+              <p className="muted" role="status">Voice model not responding — navigation still works.</p>
+            )}
+            {lastTwo.length > 0 && (
               <ul className="mini-transcript" aria-label="Live transcript">
-                {roomState.transcript.slice(-4).map((t, i) => (
+                {lastTwo.map((t, i) => (
                   <li key={i}><b>{t.who}:</b> {(t.text || '').slice(0, 160)}</li>
                 ))}
               </ul>
@@ -215,7 +300,7 @@ export default function MiniPlayer({ hidden, onOpenJarvis }) {
             )}
           </>
         )}
-        {session.error && <p className="form-errors" role="alert" style={{ marginTop: 8 }}>{session.error}</p>}
+        {session.error && session.phase !== 'error' && <p className="form-errors" role="alert" style={{ marginTop: 8 }}>{session.error}</p>}
         <div style={{ marginTop: 8 }}>
           <ActivityStrip compact />
         </div>

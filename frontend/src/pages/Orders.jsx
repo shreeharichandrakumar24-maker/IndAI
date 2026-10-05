@@ -10,12 +10,14 @@ import OrderDetails from '../components/orders/OrderDetails';
 
 const ACTIVE_STATUSES = ['PENDING', 'PLANNED', 'APPROVED', 'IN_PROGRESS', 'IN REVIEW', 'REVIEW'];
 
-export default function Orders({ focusOrderId }) {
+export default function Orders({ focusOrderId, presetFilter }) {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // Voice/typed preset from navigate(page, {filter}).
+  useEffect(() => { if (presetFilter) setStatusFilter(presetFilter); }, [presetFilter]);
 
   // Reference data for assignment dropdowns + FK display in details.
   const [employees, setEmployees] = useState([]);

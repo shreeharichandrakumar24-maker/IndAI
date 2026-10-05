@@ -1670,11 +1670,29 @@
   animation: popIn 0.18s ease;
 }
 
+/* Hand-off: the card lands from the Jarvis page direction (bottom-right
+ * dock) and settles. Transform/opacity only; disabled under
+ * prefers-reduced-motion with the other animations below. */
+.mini-card.handoff {
+  animation: handoffIn 0.45s ease;
+}
+
+@keyframes handoffIn {
+  from { opacity: 0; transform: translateY(24px) scale(0.92); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.mini-head .btn-small.on {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .main > .page,
   .stat-grid > *,
   .jarvis-orb, .mini-orb,
   .mini-card,
+  .mini-card.handoff,
   .zone-auto,
   .jarvis-hero::before {
     animation: none !important;

@@ -46,6 +46,19 @@ if (-not (Test-Path -LiteralPath $venvPy)) {
   Write-Output 'Voice agent NOT started: Jarvis venv python not found.'
   exit 1
 }
+# Kill any previous Jarvis agent process (identified by its own command
+# line) so two agents never share a room and swallow each other's turns.
+# Nothing else is touched: only python processes running Jarvis agent.py.
+try {
+  $stale = Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
+    Where-Object { $_.CommandLine -like '*Jarvis*agent.py*' }
+  foreach ($p in $stale) {
+    Write-Output ('[voice] stopping previous Jarvis agent (PID ' + $p.ProcessId + ') ...')
+    Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+} catch {
+  Write-Output '[voice] (could not check for previous agent processes; continuing)'
+}
 Set-Location (Join-Path $root 'Jarvis')
 Write-Output 'Starting IndAI voice agent (Ctrl+C stops it)...'
 & $venvPy src\agent.py dev

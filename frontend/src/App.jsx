@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
 import Dashboard from './pages/Dashboard';
@@ -28,6 +28,8 @@ import Onboarding from './pages/Onboarding';
 import PlaceholderPage from './pages/PlaceholderPage';
 import { useSystemStatus } from './hooks/useSystemStatus';
 import { NAV_ITEMS, NAV_SECTIONS } from './config/nav';
+import './config/navigationData';
+import { validateUiCommand } from './components/voice/uiCommand';
 import { api } from './services/api';
 import { accessToken, signOut } from './services/auth';
 import './App.css';
@@ -73,6 +75,10 @@ export default function App() {
   // DEV ONLY: VITE_AUTH_DISABLED=true skips the login screen entirely.
   const devMode = import.meta.env.VITE_AUTH_DISABLED === 'true';
   const [route, setRoute] = useState('dashboard');
+  // Refs keep handleUiCommand stable (the RPC handler is registered once)
+  // while still seeing the current gate/user.
+  const gateRef = useRef('checking');
+  const userRef = useRef(null);
   // Optional cross-page navigation payload (Phase 1 map links), e.g.
   // navigate('orders', { orderId }). Manual nav clears it. No router.
   const [navPayload, setNavPayload] = useState(null);
@@ -106,13 +112,38 @@ export default function App() {
     setRoute(next);
     setDrawerOpen(false);
   }, []);
+  // Hand-off signal: bumped whenever the app leaves the Jarvis page for
+  // another page, so the mini player can auto-expand with a smooth
+  // collapse-into-dock transition while the shared session continues.
+  const [handoffKey, setHandoffKey] = useState(0);
+  const routeRef = useRef(route);
+  useEffect(() => {
+    if (routeRef.current === 'jarvis' && route !== 'jarvis') {
+      setHandoffKey((k) => k + 1);
+    }
+    routeRef.current = route;
+  }, [route]);
 
   // Browser RPC "ui.command" from the voice agent (Part D). Already
   // validated; resolves human refs (codes/numbers) to ids, then navigates.
   const handleUiCommand = useCallback(async (action, args) => {
     if (action === 'navigate') {
-      if (!NAV_ITEMS.some((n) => n.id === args.page)) return `rejected: unknown page '${args.page}'`;
-      navigate(args.page);
+      if (gateRef.current === 'onboarding') {
+        return "Factory setup isn't finished yet; I can't open pages until setup is complete.";
+      }
+      const item = NAV_ITEMS.find((n) => n.id === args.page);
+      if (!item) return `rejected: unknown page '${args.page}'`;
+      const me = userRef.current;
+      if (item.roles && me && me.role && !item.roles.includes(me.role)) {
+        return `rejected: your role can't open ${item.label}`;
+      }
+      // Best effort: close an open modal and the mobile drawer first.
+      try {
+        const backdrop = document.querySelector('.modal-backdrop');
+        if (backdrop) backdrop.click();
+      } catch { /* ignore */ }
+      setDrawerOpen(false);
+      navigate(args.page, args.filter ? { filter: args.filter } : null);
       return 'ok';
     }
     if (action === 'select_machine') {
@@ -136,9 +167,21 @@ export default function App() {
     }
     if (action === 'open_incident') {
       const list = await api.incidents();
+      const rows = Array.isArray(list) ? list : [];
       const want = args.incident.trim().toLowerCase();
-      const hit = (Array.isArray(list) ? list : []).find((i) =>
-        String(i.id).toLowerCase().startsWith(want));
+      let hit = rows.find((i) => String(i.id).toLowerCase().startsWith(want));
+      if (!hit) {
+        // Compound request: "the incident for M-001" — resolve the machine
+        // first, then its most recent actionable incident.
+        const fleet = await api.machines().catch(() => []);
+        const mach = (Array.isArray(fleet) ? fleet : []).find((m) =>
+          (m.name || '').toLowerCase().startsWith(want) || m.id === args.incident);
+        if (mach) {
+          const mine = rows.filter((i) => i.machine_id === mach.id);
+          mine.sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+          hit = mine.find((i) => i.status === 'OPEN' || i.status === 'IN_PROGRESS') || mine[0];
+        }
+      }
       if (!hit) return `rejected: no incident '${args.incident}'`;
       navigate('incidents', { incidentId: hit.id });
       return 'ok';
@@ -149,9 +192,26 @@ export default function App() {
     }
     return 'rejected: unhandled';
   }, [navigate]);
+  // DEV ONLY: fake "ui.command" injection for headless tests — runs the
+  // SAME strict validator and the SAME handler as the LiveKit RPC path.
+  useEffect(() => {
+    if (!import.meta.env.DEV) return undefined;
+    window.__indaiUiCommand = async (payload) => {
+      const verdict = validateUiCommand(payload);
+      if (!verdict.ok) return verdict.error;
+      try {
+        return (await handleUiCommand(verdict.action, verdict.args)) || 'ok';
+      } catch (err) {
+        return `rejected: ${String(err?.message || err).slice(0, 200)}`;
+      }
+    };
+    return () => { delete window.__indaiUiCommand; };
+  }, [handleUiCommand]);
   const [session, setSession] = useState(() => (devMode || !!accessToken()));
   const [user, setUser] = useState(null);
   const [gate, setGate] = useState('checking'); // checking | onboarding | ready
+  useEffect(() => { gateRef.current = gate; }, [gate]);
+  useEffect(() => { userRef.current = user; }, [user]);
   const [authError, setAuthError] = useState('');
   const systemStatus = useSystemStatus();
   const meta = TITLES[route] || { title: NAV_ITEMS.find((n) => n.id === route)?.label || route };
@@ -275,46 +335,46 @@ export default function App() {
         {shown === 'dashboard' ? (
           <Dashboard />
         ) : shown === 'map' ? (
-          <FactoryMap onNavigate={navigate} focusOrderId={navPayload?.orderId} />
+          <FactoryMap onNavigate={navigate} focusOrderId={navPayload?.orderId} presetFilter={navPayload?.filter} />
         ) : shown === 'profile' ? (
           <FactoryProfile />
         ) : shown === 'import' ? (
           <Import />
         ) : shown === 'employees' ? (
-          <Employees />
+          <Employees presetFilter={navPayload?.filter} />
         ) : shown === 'machines' ? (
-          <Machines focusMachineId={navPayload?.machineId} />
+          <Machines focusMachineId={navPayload?.machineId} presetFilter={navPayload?.filter} />
         ) : shown === 'orders' ? (
-          <Orders focusOrderId={navPayload?.orderId} />
+          <Orders focusOrderId={navPayload?.orderId} presetFilter={navPayload?.filter} />
         ) : shown === 'tasks' ? (
-          <Tasks onNavigate={navigate} />
+          <Tasks onNavigate={navigate} presetFilter={navPayload?.filter} />
         ) : shown === 'production' ? (
-          <Production />
+          <Production presetFilter={navPayload?.filter} />
         ) : shown === 'iot' ? (
           <IoTMonitoring focusMachineId={navPayload?.machineId} />
         ) : shown === 'simulator' ? (
           <Simulator />
         ) : shown === 'incidents' ? (
-          <Incidents focusIncidentId={navPayload?.incidentId} />
+          <Incidents focusIncidentId={navPayload?.incidentId} presetFilter={navPayload?.filter} />
         ) : shown === 'memory' ? (
           <Memory />
         ) : shown === 'reports' ? (
           <Reports />
         ) : shown === 'plans' ? (
-          <Plans onNavigate={navigate} />
+          <Plans onNavigate={navigate} presetFilter={navPayload?.filter} />
         ) : shown === 'simulate' ? (
           <Simulate />
         ) : shown === 'ai' ? (
-          <Assistant />
+          <Assistant onUiCommand={handleUiCommand} />
         ) : shown === 'jarvis' ? (
-          <Jarvis />
+          <Jarvis onUiCommand={handleUiCommand} />
         ) : shown === 'users' ? (
           <Users me={user} />
         ) : (
           <PlaceholderPage page={shown} />
         )}
       </div>
-      <MiniPlayer hidden={shown === 'jarvis'} onOpenJarvis={() => handleNavigate('jarvis')} />
+      <MiniPlayer hidden={shown === 'jarvis'} onOpenJarvis={() => handleNavigate('jarvis')} handoffKey={handoffKey} />
     </div>
     <ToastHost />
     </CommandFeedProvider>

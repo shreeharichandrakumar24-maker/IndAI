@@ -8,7 +8,7 @@ import ProductionTable from '../components/production/ProductionTable';
 import ProductionForm from '../components/production/ProductionForm';
 import ProductionDetails from '../components/production/ProductionDetails';
 
-export default function Production() {
+export default function Production({ presetFilter }) {
   const [runs, setRuns] = useState([]);
   const [orders, setOrders] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -18,6 +18,8 @@ export default function Production() {
   const [refsError, setRefsError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  // Voice/typed preset from navigate(page, {filter}).
+  useEffect(() => { if (presetFilter) setStatusFilter(presetFilter); }, [presetFilter]);
   const [orderFilter, setOrderFilter] = useState('');
   const [machineFilter, setMachineFilter] = useState('');
 

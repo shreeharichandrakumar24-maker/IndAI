@@ -20,8 +20,10 @@ from livekit.agents import RunContext, function_tool
 
 try:
     from . import rest
+    from . import navigation as nav
 except ImportError:  # loaded as a top-level script (tests, direct runs)
     import rest
+    import navigation as nav
 
 _OK = (200, 201)
 
@@ -148,6 +150,46 @@ class IndAITools:
             return None, f"I don't have a {kind} matching {raw}."
         # Resolver unreachable: caller falls back to legacy local matching.
         return None, "fallback"
+
+    # ---- browser RPC helpers (robust: retry lookup, bounded wait) ----
+
+    # Browser RPC bounds: resolve retries + response timeout. A hung screen
+    # must produce a short spoken error, never a blocked (silent) turn.
+    RPC_TIMEOUT_S = 3.0
+    RPC_LOOKUP_RETRIES = 2
+    RPC_LOOKUP_DELAY_S = 0.4
+
+    async def _find_browser_target(self):
+        """Admin browser participant identity, or None. Retries briefly:
+        the browser may still be joining when the turn lands."""
+        import asyncio as _asyncio
+        room = self._room_getter()
+        if room is None:
+            return None
+        for attempt in range(self.RPC_LOOKUP_RETRIES + 1):
+            target = None
+            try:
+                parts = room.remote_participants.values()
+            except Exception:
+                parts = []
+            try:
+                for p in parts:
+                    ident = getattr(p, "identity", "") or ""
+                    if ident.startswith("admin-"):
+                        target = ident
+                        break
+                if target is None and room.remote_participants:
+                    target = next(iter(room.remote_participants.values())).identity
+            except Exception:
+                target = None
+            if target:
+                return target
+            if attempt < self.RPC_LOOKUP_RETRIES:
+                try:
+                    await _asyncio.sleep(self.RPC_LOOKUP_DELAY_S)
+                except Exception:
+                    break
+        return None
 
     def tools(self):
         inner = self
@@ -690,6 +732,142 @@ class IndAITools:
             return (f"{_tag(match['label'], match['id'])} has {len(open_t)} open and "
                     f"{len(done_t)} finished tasks.{extra}")
 
+        # ---- READ coverage for pages (spoken summaries, capped, no ids) ----
+
+        @function_tool()
+        async def get_production_summary(context: RunContext) -> str:
+            """Production runs at a glance: counts per status and output vs target."""
+            code, data = await rest.api_get("/production")
+            if code != 200 or not isinstance(data, list) or not data:
+                return "There are no production runs."
+            counts, target, done = {}, 0, 0
+            for r in data:
+                st = str(r.get("status") or "PLANNED").upper().replace("_", " ")
+                counts[st] = counts.get(st, 0) + 1
+                target += int(r.get("quantity_target") or 0)
+                done += int(r.get("quantity_completed") or 0)
+            parts = ", ".join(f"{n} {st.lower()}" for st, n in sorted(counts.items()))
+            pct = round(done * 100 / target) if target else 0
+            return (f"{len(data)} production run(s): {parts}. "
+                    f"Output {done} of {target} units ({pct}%).")
+
+        @function_tool()
+        async def get_iot_status(context: RunContext) -> str:
+            """Latest sensor reading per machine and which sensors are stale (no data in 90 seconds)."""
+            code, fleet = await rest.api_get("/machines")
+            if code != 200 or not isinstance(fleet, list) or not fleet:
+                return "I don't have sensor data right now."
+            from datetime import datetime, timezone
+            stale, fresh, bits = [], 0, []
+            for m in fleet[:10]:
+                name = m.get("name") or "a machine"
+                code2, rows = await rest.api_get(f"/telemetry/{m.get('id')}", params={"limit": 1})
+                row = rows[0] if code2 == 200 and isinstance(rows, list) and rows else None
+                age = None
+                if row:
+                    try:
+                        dt = datetime.fromisoformat(str(row.get("timestamp") or "").replace("Z", "+00:00"))
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        age = (datetime.now(timezone.utc) - dt).total_seconds()
+                    except ValueError:
+                        age = None
+                # Same 90-second staleness rule as the factory map (STALE_MS).
+                if age is None or age > 90:
+                    when = f"last seen {int(age // 60)} min ago" if age and age > 90 else "stale reading"
+                    stale.append(f"{name} ({when})")
+                    continue
+                fresh += 1
+                if len(bits) < 4:
+                    bits.append(f"{name} {row.get('temperature')} C, vibration {row.get('vibration')}")
+            line = f"{fresh} of {len(fleet)} machine(s) reporting normally."
+            if stale:
+                line += f" Stale: {'; '.join(stale[:5])}."
+            if bits:
+                line += f" Latest: {'; '.join(bits)}."
+            return line
+
+        @function_tool()
+        async def get_reports_summary(context: RunContext) -> str:
+            """This week's report: completed/late orders, incidents, decisions, top failing machine."""
+            code, d = await rest.api_get("/reports/weekly", params={"week_offset": 0})
+            if code != 200 or not isinstance(d, dict):
+                return "I don't have the weekly report right now."
+            o = d.get("orders") or {}
+            inc = d.get("downtime") or {}
+            dec = d.get("decisions") or {}
+            tops = [t.get("name") for t in (d.get("top_failing_machines") or [])[:3] if t.get("name")]
+            bits = [
+                f"Week report: {o.get('completed_this_week', 0)} order(s) completed this week, "
+                f"{o.get('late_now', 0)} late, {o.get('active_total', 0)} active.",
+                f"{inc.get('incidents_raised_this_week', 0)} incident(s) raised, "
+                f"{inc.get('currently_open', 0)} open; {dec.get('admin_decisions_this_week', 0)} admin "
+                f"decision(s), {dec.get('recommendations_approved', 0)} proposals approved.",
+            ]
+            if tops:
+                bits.append(f"Most incidents: {', '.join(tops)}.")
+            return " ".join(bits)
+
+        @function_tool()
+        async def get_factory_profile_summary(context: RunContext) -> str:
+            """Factory profile summary: industry, machine types, alert limits and autonomy mode. Never credentials."""
+            code, prof = await rest.api_get("/profile")
+            if code != 200 or not isinstance(prof, dict):
+                return "There is no factory profile yet."
+            data = prof.get("profile") if isinstance(prof.get("profile"), dict) else {}
+            industry = prof.get("industry") or data.get("industry") or "general manufacturing"
+            machines = data.get("machines") or []
+            types = []
+            for m in machines[:12]:
+                t = str(m.get("machine_type") or m.get("type") or "other")
+                if t not in types:
+                    types.append(t)
+            thr = data.get("thresholds") or {}
+            thr_bits = []
+            for tname, ts in list(thr.items())[:4]:
+                ts = ts if isinstance(ts, dict) else {}
+                thr_bits.append(f"{tname}: {ts.get('temp_max', '?')} C, "
+                                f"vibration {ts.get('vibration_max', '?')}, current {ts.get('current_max', '?')} A")
+            autonomy = "FAST"
+            try:
+                c2, a = await rest.api_get("/ai/autonomy")
+                if c2 == 200 and isinstance(a, dict) and a.get("autonomy"):
+                    autonomy = str(a["autonomy"])
+            except Exception:
+                pass
+            bits = [f"Industry: {industry}. {len(machines)} machine type(s) defined"
+                    + (f" ({', '.join(types)})" if types else "") + "."]
+            if thr_bits:
+                bits.append("Alert limits: " + "; ".join(thr_bits) + ".")
+            bits.append(f"AI autonomy mode: {autonomy}.")
+            return " ".join(bits)
+
+        @function_tool()
+        async def get_users_summary(context: RunContext) -> str:
+            """Console accounts by role and active count. Never names, emails or usernames."""
+            code, rows = await rest.api_get("/users")
+            if code != 200 or not isinstance(rows, list) or not rows:
+                return "I don't have the account list right now."
+            by_role, active = {}, 0
+            for u in rows:
+                role = str(u.get("role") or "UNKNOWN").lower()
+                by_role[role] = by_role.get(role, 0) + 1
+                if u.get("active"):
+                    active += 1
+            parts = ", ".join(f"{n} {r}" for r, n in sorted(by_role.items()))
+            return f"{len(rows)} console account(s): {parts}; {active} active."
+
+        @function_tool()
+        async def list_pending_proposals(context: RunContext) -> str:
+            """AI proposals waiting for approval on screen (text only, capped)."""
+            code, rows = await rest.api_get("/ai/proposals", params={"status": "PENDING"})
+            if code != 200 or not isinstance(rows, list) or not rows:
+                return "No proposals are waiting for approval."
+            heads = [str(p.get("recommendation") or p.get("recommendation_type") or "")[:90]
+                     for p in rows[:3]]
+            heads = [h for h in heads if h]
+            return f"{len(rows)} proposal(s) waiting for approval: " + "; ".join(heads) + "."
+
         # ---- FAST composite command tools (ONE call, ONE spoken sentence) ----
 
         async def _command_post(path, body):
@@ -839,15 +1017,19 @@ class IndAITools:
             return "I couldn't undo that right now."
 
         @function_tool()
-        async def navigate_ui(context: RunContext, action: str, machine: str = "",
-                              order: str = "", incident: str = "") -> str:
-            """Show something on the admin screen (navigate/select/open). Never claims changes.
+        async def navigate_ui(context: RunContext, action: str = "navigate",
+                              page: str = "", machine: str = "", order: str = "",
+                              incident: str = "", filter: str = "") -> str:
+            """Show something on the admin screen: open a page or focus an entity.
+            Never claims data changed. Answers in ONE short sentence.
 
             Args:
-                action: One of navigate, select_machine, open_order, open_incident, focus_order_on_map, show_proposals.
-                machine: Machine code for select_machine.
+                action: navigate (open a page), select_machine, open_order, open_incident, focus_order_on_map, show_proposals.
+                page: Page in ANY natural form for navigate: "the Machines tab", "production", "progress tracker".
+                machine: Machine code/name for select_machine.
                 order: Order number for open_order/focus_order_on_map.
-                incident: Incident id prefix for open_incident.
+                incident: Incident id, or machine code like M-001, for open_incident.
+                filter: Optional preset the page's UI already has ("open", "overdue", "live").
             """
             import json as _json
             allowed = {"navigate", "select_machine", "open_order", "open_incident",
@@ -855,26 +1037,51 @@ class IndAITools:
             if action not in allowed:
                 return f"Unknown screen action {action}."
             payload = {"action": action}
-            if machine:
-                payload["machine"] = machine
-            if order:
-                payload["order"] = order
-            if incident:
-                payload["incident"] = incident
+            # One short sentence the model reads back verbatim.
+            speak = None
+            if action == "navigate":
+                if not (page or "").strip():
+                    return "Which page? I can open: " + ", ".join(nav.page_labels()[:3]) + "."
+                resolved = nav.resolve_page(page)
+                if resolved is None:
+                    return nav.unknown_page_message(page)
+                page_id, label, alias_filter = resolved
+                filt_key = None
+                if (filter or "").strip():
+                    filt_key = nav.resolve_filter(page_id, filter)
+                    if filt_key is None:
+                        opts = ", ".join(nav.filter_speak_list(page_id)) or "none"
+                        return f"I can't filter {label} that way; I can show: {opts}."
+                elif alias_filter:
+                    filt_key = alias_filter
+                payload["page"] = page_id
+                if filt_key:
+                    payload["filter"] = filt_key
+                    speak = f"Opening {label}: {nav.filter_speak(page_id, filt_key)}."
+                else:
+                    speak = f"Opening {label}."
+                inner.remember("page", page_id, label)
+            else:
+                # Only the one field this action allows (the browser
+                # validator rejects anything else as strict).
+                field = {"select_machine": "machine", "open_order": "order",
+                         "open_incident": "incident",
+                         "focus_order_on_map": "order"}.get(action)
+                value = {"select_machine": machine, "open_order": order,
+                         "open_incident": incident,
+                         "focus_order_on_map": order}.get(action)
+                if field and value:
+                    payload[field] = value
+                target_page = {"select_machine": "machines", "open_order": "orders",
+                               "open_incident": "incidents", "focus_order_on_map": "map",
+                               "show_proposals": "ai"}.get(action)
+                if target_page:
+                    speak = f"Opening {nav.label_of(target_page)}."
+                    inner.remember("page", target_page, nav.label_of(target_page))
             room = self._room_getter()
             if room is None:
                 return "No live room. The screen could not be updated."
-            target = None
-            try:
-                for p in room.remote_participants.values():
-                    ident = getattr(p, "identity", "") or ""
-                    if ident.startswith("admin-"):
-                        target = ident
-                        break
-                if target is None and room.remote_participants:
-                    target = next(iter(room.remote_participants.values())).identity
-            except Exception:
-                target = None
+            target = await inner._find_browser_target()
             if not target:
                 return "No admin browser in the room. The screen could not be updated."
             try:
@@ -882,10 +1089,66 @@ class IndAITools:
                     destination_identity=target,
                     method="ui.command",
                     payload=_json.dumps(payload),
+                    response_timeout=inner.RPC_TIMEOUT_S,
                 )
-                return f"Screen updated ({action}). {str(resp)[:120]}"
             except Exception as e:
-                return f"The screen could not be updated: {str(e)[:150]}"
+                import logging as _logging
+                _logging.getLogger("jarvis.voice").warning(
+                    "ui.command RPC failed: %s", type(e).__name__)
+                msg = str(e)[:150]
+                if "timeout" in msg.lower() or "timed out" in msg.lower():
+                    return "The screen took too long to answer. Please say it again."
+                return "The screen could not be updated. Please try again."
+            text = str(resp or "")
+            if text.startswith("ok"):
+                return speak or "Shown on the admin screen."
+            if "handler reloading, please retry" in text:
+                # Browser mid-remount (stale RPC closure): one quick retry
+                # heals the turn instead of speaking a technical error.
+                import asyncio as _asyncio
+                import logging as _logging
+                _logging.getLogger("jarvis.voice").warning("ui.command stale handler, retrying once")
+                try:
+                    await _asyncio.sleep(0.6)
+                    resp2 = await room.local_participant.perform_rpc(
+                        destination_identity=target,
+                        method="ui.command",
+                        payload=_json.dumps(payload),
+                        response_timeout=inner.RPC_TIMEOUT_S,
+                    )
+                except Exception as e2:
+                    _logging.getLogger("jarvis.voice").warning(
+                        "ui.command retry failed: %s", type(e2).__name__)
+                    return "The screen took too long to answer. Please say it again."
+                text = str(resp2 or "")
+                if text.startswith("ok"):
+                    return speak or "Shown on the admin screen."
+            # The browser returns a speakable refusal; drop the machine prefix.
+            return text.replace("rejected: ", "", 1)[:200]
+
+        @function_tool()
+        async def end_session(context: RunContext) -> str:
+            """End the voice session, ONLY on an explicit user request
+            ("end session", "stop listening", "disconnect", "goodbye Jarvis").
+            Says one closing line, then signals the browser to run its normal
+            End flow (delayed, so the goodbye is heard). Never call this for
+            navigation or any other request.
+            """
+            import json as _json
+            room = self._room_getter()
+            if room is not None:
+                target = await inner._find_browser_target()
+                if target:
+                    try:
+                        await room.local_participant.perform_rpc(
+                            destination_identity=target,
+                            method="voice.end_session",
+                            payload=_json.dumps({}),
+                            response_timeout=inner.RPC_TIMEOUT_S,
+                        )
+                    except Exception:
+                        pass
+            return "Okay, ending the session."
 
         return [get_factory_overview, list_machines_needing_attention,
                 get_machine_status, get_order_status, list_open_incidents,
@@ -894,4 +1157,8 @@ class IndAITools:
                 propose_maintenance, propose_delay, navigate_ui,
                 get_task_status, get_recent_actions, get_plan_status,
                 get_worker_progress,
-                do_assign_task, do_create_order, do_change_task, undo_last]
+                get_production_summary, get_iot_status, get_reports_summary,
+                get_factory_profile_summary, get_users_summary,
+                list_pending_proposals,
+                do_assign_task, do_create_order, do_change_task, undo_last,
+                end_session]
