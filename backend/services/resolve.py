@@ -327,8 +327,13 @@ def _resolve_employee(db: Session, q: str, codes: dict) -> list:
     code = normalize_employee_code(q)
     if code:
         hit = None
-        for c in db.query(WorkerCredential).filter(WorkerCredential.employee_code == code).all():
-            hit = db.query(Employee).filter(Employee.id == c.employee_id).first()
+        # Stored codes may be hyphenated (EMP-001) or compact (EMP001):
+        # try both spellings, hyphenated first (established convention).
+        for cand in dict.fromkeys([code, code.replace("-", "")]):
+            for c in db.query(WorkerCredential).filter(WorkerCredential.employee_code == cand).all():
+                hit = db.query(Employee).filter(Employee.id == c.employee_id).first()
+                if hit:
+                    break
             if hit:
                 break
         return [_employee_match(db, hit, codes)] if hit else []

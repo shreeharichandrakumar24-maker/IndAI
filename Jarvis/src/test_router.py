@@ -330,6 +330,36 @@ async def _async():
     check(isinstance(out, str) and len(out) > 0, "persistent stale handler still speaks", out)
     ok("RPC persistent-stale speaks")
 
+    # -- capped lists state the TRUE total (never mistake shown for total) --
+    import tools as _Tmod
+    _orig_get = _Tmod.rest.api_get
+    _emps10 = [{"id": f"e{i}", "name": f"Worker {i}", "role": "CNC Operator",
+                "availability": "AVAILABLE", "shift": "Morning",
+                "skills": {"items": ["CNC operation"]}} for i in range(10)]
+    _tasks10 = [{"id": f"t{i}", "name": f"Job {i}", "status": "PENDING",
+                 "required_skill": "CNC operation", "employee_id": None} for i in range(10)]
+
+    async def _fake_get(path, params=None):
+        if path == "/employees":
+            return 200, _emps10
+        if path == "/tasks":
+            return 200, _tasks10
+        if path.endswith("/worker-login"):
+            return 200, {"has_login": True, "employee_code": "EMP-001"}
+        return 404, "no mock"
+
+    _Tmod.rest.api_get = _fake_get
+    try:
+        byT = {getattr(t, "id", getattr(t, "__name__", "?")): t for t in _Tmod.IndAITools(lambda: None).tools()}
+        r = await byT["list_available_employees"](None)
+        check("(10 total.)" in r, "employees total stated", r[:120])
+        check("Worker 9" not in r, "employees list still capped at 8", r[:200])
+        r = await byT["list_unassigned_tasks"](None)
+        check("(10 total.)" in r, "tasks total stated", r[:120])
+        ok("capped lists state totals")
+    finally:
+        _Tmod.rest.api_get = _orig_get
+
     # -- timing: 20 routed turns, turn-completion -> sentence (excl STT/TTS) --
     dt = []
     for _ in range(20):

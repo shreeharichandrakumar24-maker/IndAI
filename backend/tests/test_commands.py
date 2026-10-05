@@ -186,7 +186,7 @@ class TestCommandsLive(unittest.TestCase):
 
     def test_create_assign_undo_flow(self):
         db = self.__class__.db
-        out = svc.run_create_task(db, text="assign a TSTEST milling task to Ravi Kumar",
+        out = svc.run_create_task(db, text="assign a TSTEST milling task to Arun Kumar",
                                   source="test")
         self._track(out)
         self.assertTrue(out["undo_available"])
@@ -198,7 +198,7 @@ class TestCommandsLive(unittest.TestCase):
         self.assertEqual(t.status, "PENDING")
         self.assertIsNotNone(t.employee_id)
         # duplicate guard
-        dup = svc.run_create_task(db, text="assign a TSTEST milling task to Ravi Kumar",
+        dup = svc.run_create_task(db, text="assign a TSTEST milling task to Arun Kumar",
                                   source="test")
         self.assertFalse(dup["undo_available"])
         self.assertIn("reusing", dup["warnings"][0])

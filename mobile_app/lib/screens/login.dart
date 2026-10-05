@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/api.dart';
+import 'server_settings_dialog.dart';
 
 /// Worker sign-in (prototype): one "Email, Employee ID or username" field +
 /// password with show/hide. Prototype authentication - real authentication
@@ -58,6 +59,18 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Server connection switch (USB / Wi-Fi / LAN / custom).
+              // Shown in every build (debug AND release): workers must be
+              // able to point the app at their backend without reinstalling.
+              Align(
+                alignment: Alignment.topRight,
+                child: IconButton(
+                  icon: const Icon(Icons.settings),
+                  tooltip: 'Server settings',
+                  onPressed: () => ServerSettingsSheet.show(
+                    context, widget.api, (_) => setState(() {})),
+                ),
+              ),
               const SizedBox(height: 48),
               const Icon(Icons.factory, size: 72, color: Color(0xFF7FB6D9)),
               const SizedBox(height: 16),

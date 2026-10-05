@@ -226,11 +226,11 @@ class IndAITools:
             for m in data:
                 if (m.get("health_status") or "").upper() not in ("GOOD", "", None) or m.get("status") in ("MAINTENANCE", "STOPPED"):
                     bad.append(f"{m.get('name')} ({m.get('health_status') or m.get('status')})")
-                if len(bad) >= 8:
-                    break
             if not bad:
                 return "All machines report GOOD health."
-            return "Needs attention: " + "; ".join(bad)
+            # State the TOTAL explicitly: the spoken list is capped, and the
+            # total must never be mistaken for the number shown.
+            return "Needs attention: " + "; ".join(bad[:8]) + f" ({len(bad)} total.)"
 
         @function_tool()
         async def get_machine_status(context: RunContext, machine: str) -> str:
@@ -305,7 +305,9 @@ class IndAITools:
                 return "I don't have that information right now."
             if not data:
                 return "No open incidents."
-            return "; ".join(f"{i.get('severity')} on {(i.get('description') or '')[:80]} [id {i.get('id')}]" for i in data[:8])
+            return ("Open incidents: " + "; ".join(
+                f"{i.get('severity')} on {(i.get('description') or '')[:80]} [id {i.get('id')}]"
+                for i in data[:8]) + f" ({len(data)} total.)")
 
         @function_tool()
         async def analyze_incident(context: RunContext, incident_id: str) -> str:
@@ -361,11 +363,11 @@ class IndAITools:
                 emp_code = await _code_for(e.get("id"))
                 out.append(f"{e.get('name')}" + (f" ({emp_code})" if emp_code else "") +
                            f" [id {e.get('id')}] ({e.get('role')}, {e.get('shift') or 'no shift'})")
-                if len(out) >= 8:
-                    break
             if not out:
                 return f"No available employees{(' for ' + skill) if skill else ''}."
-            return "Available: " + "; ".join(out)
+            # State the TOTAL explicitly: the spoken list is capped, and the
+            # total must never be mistaken for the number shown.
+            return "Available: " + "; ".join(out[:8]) + f" ({len(out)} total.)"
 
         @function_tool()
         async def get_employee_workload(context: RunContext, employee: str) -> str:
@@ -403,7 +405,9 @@ class IndAITools:
                   and (t.get("status") or "").upper() in ("PENDING", "IN_PROGRESS")]
             if not un:
                 return "No unassigned tasks."
-            return "; ".join(f"{t.get('name')} [id {t.get('id')}] (needs {t.get('required_skill') or 'general'})" for t in un[:8])
+            return ("Unassigned tasks: " + "; ".join(
+                f"{t.get('name')} [id {t.get('id')}] (needs {t.get('required_skill') or 'general'})"
+                for t in un[:8]) + f" ({len(un)} total.)")
 
         @function_tool()
         async def suggest_assignment(context: RunContext, task: str) -> str:

@@ -33,9 +33,11 @@ def get_employees(status: Optional[str] = None, code: Optional[str] = None,
         norm = normalize_employee_code(code)
         if not norm:
             return []
+        # Stored codes may be hyphenated (EMP-001) or compact (EMP001).
+        cands = list(dict.fromkeys([norm, norm.replace("-", "")]))
         query = query.join(WorkerCredential,
                            WorkerCredential.employee_id == Employee.id).filter(
-            WorkerCredential.employee_code == norm)
+            WorkerCredential.employee_code.in_(cands))
     if q:
         like = f"%{q.strip()}%"
         query = query.filter(or_(Employee.name.ilike(like), Employee.role.ilike(like)))

@@ -349,14 +349,18 @@ def _extract_spans(snap: _Snap, text: str) -> dict:
             break
     if "employee" not in found:
         # EMP-004 spoken/typed code via the worker_credentials map.
+        # Stored codes may be hyphenated (EMP-004) or compact (EMP004).
         ce = re.search(r"\bEMP-?(\d{1,4})\b", t, re.IGNORECASE)
         if ce:
             want = f"EMP-{ce.group(1).zfill(3)}"
             by_code = {str(code).upper(): emp
                        for emp in snap.employees
                        for code in [snap.codes.get(emp.id)] if code}
-            if by_code.get(want.upper()) is not None:
-                found["employee"] = by_code[want.upper()]
+            hit = by_code.get(want.upper())
+            if hit is None:
+                hit = by_code.get(want.replace("-", "").upper())
+            if hit is not None:
+                found["employee"] = hit
     m = re.search(r"\bM-?(\d{1,4})\b", t, re.IGNORECASE)
     if m:
         code = f"M-{m.group(1).zfill(3)}"
