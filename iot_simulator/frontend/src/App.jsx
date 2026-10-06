@@ -90,6 +90,7 @@ export default function App() {
   const [machines, setMachines] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [sensorOverrides, setSensorOverrides] = useState({});
+  const [alertsById, setAlertsById] = useState({});
   const [transmissionLog, setTransmissionLog] = useState([]);
   const [backendOnline, setBackendOnline] = useState(false);
   const [countdown, setCountdown] = useState(TELEMETRY_INTERVAL / 1000);
@@ -155,6 +156,8 @@ export default function App() {
 
       const now = new Date();
       const results = [];
+      const newAlerts = {};
+      const clearedIds = [];
 
       for (const machine of machinesRef.current) {
         const values = getSensorValues(machine);
@@ -169,14 +172,32 @@ export default function App() {
         };
 
         try {
-          await postTelemetry(payload);
+          const resp = await postTelemetry(payload);
           results.push({ machineId: machine.id, name: machine.name, time: now, success: true });
           setBackendOnline(true);
+          if (resp && resp.is_abnormal) {
+            newAlerts[machine.id] = {
+              alert: resp.alert,
+              serviceMan: resp.service_man,
+              temperature: values.temperature,
+              severity: resp.alert?.severity || 'HIGH',
+              is_abnormal: true,
+            };
+          } else {
+            clearedIds.push(machine.id);
+          }
         } catch (err) {
           results.push({ machineId: machine.id, name: machine.name, time: now, success: false, error: err.message });
           setBackendOnline(false);
         }
       }
+
+      setAlertsById(prev => {
+        const next = { ...prev, ...newAlerts };
+        clearedIds.forEach(id => delete next[id]);
+        return next;
+      });
+
       setTransmissionLog(results);
       setCountdown(TELEMETRY_INTERVAL / 1000);
     }
@@ -225,6 +246,41 @@ export default function App() {
     return map;
   }, [machines, effectiveById]);
 
+  // Combined alerts: backend detection responses merged with immediate local abnormal state
+  const effectiveAlerts = useMemo(() => {
+    const combined = { ...alertsById };
+    for (const m of machines) {
+      const eff = effectiveById[m.id];
+      if (!eff) continue;
+      const isAbnormal =
+        eff.temperature > 85.0 ||
+        eff.vibration > 5.0 ||
+        eff.current > 10.0 ||
+        eff.rpm < 1300 ||
+        eff.machine_status === 'MAINTENANCE' ||
+        eff.machine_status === 'STOPPED';
+
+      if (isAbnormal) {
+        if (!combined[m.id]) {
+          combined[m.id] = {
+            temperature: eff.temperature,
+            severity: eff.temperature > 85.0 || eff.machine_status === 'STOPPED' ? 'CRITICAL' : 'WARNING',
+            is_abnormal: true,
+            serviceMan:
+              eff.current > 10.0
+                ? { name: 'Imran Khan', role: 'Electrical Maintenance Technician' }
+                : { name: 'Rajesh Khanna', role: 'Senior Mechanical Maintenance Technician' },
+          };
+        } else {
+          combined[m.id].temperature = eff.temperature;
+        }
+      } else if (!isAbnormal && combined[m.id] && !alertsById[m.id]) {
+        delete combined[m.id];
+      }
+    }
+    return combined;
+  }, [alertsById, machines, effectiveById]);
+
   const handleOverride = (machineId, newValues) => {
     setSensorOverrides(prev => ({
       ...prev,
@@ -251,12 +307,44 @@ export default function App() {
     );
   }
 
+  const alertCount = Object.keys(effectiveAlerts).length;
+
   return (
     <div className="app">
       <header className="app-header">
         <h1>🏭 IndAI IoT Simulator</h1>
         <span className="app-subtitle">Factory Floor Simulation</span>
       </header>
+
+      {alertCount > 0 && (
+        <div className="active-alerts-banner">
+          <div className="alert-banner-header">
+            <span className="alert-pulse-dot">🚨</span>
+            <span className="alert-banner-title">
+              ABNORMAL TELEMETRY ALERT — {alertCount} Machine(s) Require Maintenance
+            </span>
+          </div>
+          <div className="alert-banner-chips">
+            {Object.entries(effectiveAlerts).map(([mId, a]) => {
+              const m = machines.find(x => x.id === mId);
+              const isSel = mId === selectedId;
+              return (
+                <div
+                  key={mId}
+                  className={`alert-chip ${isSel ? 'selected' : ''}`}
+                  onClick={() => setSelectedId(mId)}
+                  title="Click to view machine control & maintenance details"
+                >
+                  <span className="chip-code">{m?.name?.split(' ')[0] || 'Machine'}</span>
+                  <span className="chip-company">[{m?.company_name || 'Factory'}]</span>
+                  <span className="chip-temp">🌡️ {a.temperature}°C</span>
+                  <span className="chip-tech">👨‍🔧 Service Man: {a.serviceMan?.name || 'Rajesh Khanna'}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="app-body">
         <div className="left-panel">
@@ -271,6 +359,7 @@ export default function App() {
             onSelect={setSelectedId}
             effectiveById={effectiveById}
             healthById={healthById}
+            effectiveAlerts={effectiveAlerts}
           />
           <TransmissionStatus
             backendOnline={backendOnline}
@@ -286,6 +375,7 @@ export default function App() {
               sensorValues={sensorOverrides[selectedMachine.id] || {}}
               baseline={selectedMachine.baseline}
               abnormal={selectedMachine.abnormal}
+              alertInfo={effectiveAlerts[selectedMachine.id]}
               onApply={(values) => handleOverride(selectedMachine.id, values)}
               onReset={() => handleClearOverride(selectedMachine.id)}
             />

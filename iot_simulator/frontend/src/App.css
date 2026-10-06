@@ -562,6 +562,275 @@ body {
   background: #166534;
 }
 
+/* ===== Active Alerts Banner ===== */
+.active-alerts-banner {
+  background: linear-gradient(90deg, rgba(239, 68, 68, 0.18), rgba(245, 158, 11, 0.12));
+  border-bottom: 2px solid #ef4444;
+  padding: 10px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: alertPulseBanner 3s infinite alternate;
+}
+
+@keyframes alertPulseBanner {
+  0% { background-color: rgba(239, 68, 68, 0.12); }
+  100% { background-color: rgba(239, 68, 68, 0.22); }
+}
+
+.alert-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alert-pulse-dot {
+  font-size: 1.1rem;
+  animation: pulseIcon 1s infinite alternate;
+}
+
+@keyframes pulseIcon {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.25); }
+}
+
+.alert-banner-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #f87171;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.alert-banner-chips {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.alert-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  background: #1e1b2e;
+  border: 1px solid #ef4444;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.alert-chip:hover, .alert-chip.selected {
+  background: #2d1f3d;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}
+
+.chip-code {
+  font-weight: 700;
+  color: #fca5a5;
+}
+
+.chip-company {
+  color: #38bdf8;
+  font-size: 0.75rem;
+}
+
+.chip-temp {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.chip-tech {
+  color: #a7f3d0;
+  font-size: 0.75rem;
+}
+
+/* ===== Machine Cell Alert States ===== */
+.machine-cell.has-active-alert {
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.35);
+  animation: borderAlertPulse 1.8s infinite alternate;
+}
+
+@keyframes borderAlertPulse {
+  0% { border-color: #f87171; }
+  100% { border-color: #ef4444; box-shadow: 0 0 16px rgba(239, 68, 68, 0.55); }
+}
+
+.machine-alert-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+  width: 100%;
+}
+
+.alert-badge-mini {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.2);
+  border-radius: 4px;
+  padding: 1px 4px;
+  text-align: center;
+}
+
+.service-man-mini {
+  font-size: 0.65rem;
+  color: #6ee7b7;
+  background: rgba(16, 185, 129, 0.15);
+  border-radius: 4px;
+  padding: 1px 4px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ===== Machine Panel Alert Card ===== */
+.machine-alert-card {
+  margin-top: 20px;
+  border-radius: 8px;
+  padding: 16px;
+  border: 1px solid #ef4444;
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.12), rgba(15, 23, 42, 0.95));
+}
+
+.machine-alert-card.alert-critical {
+  border-color: #ef4444;
+  box-shadow: 0 0 16px rgba(239, 68, 68, 0.25);
+}
+
+.machine-alert-card.alert-warning {
+  border-color: #f59e0b;
+  box-shadow: 0 0 16px rgba(245, 158, 11, 0.25);
+}
+
+.alert-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.alert-card-badge {
+  font-size: 0.85rem;
+  font-weight: 800;
+  color: #f87171;
+  letter-spacing: 0.5px;
+}
+
+.alert-card-severity {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #ef4444;
+  color: #fff;
+  letter-spacing: 0.5px;
+}
+
+.alert-card-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fecaca;
+  margin-bottom: 10px;
+}
+
+.alert-breaches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 10px;
+  border-radius: 6px;
+}
+
+.alert-breach-item {
+  font-size: 0.82rem;
+  color: #cbd5e1;
+}
+
+.alert-breach-item strong {
+  color: #fca5a5;
+}
+
+.alert-service-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid rgba(239, 68, 68, 0.3);
+  padding-top: 12px;
+}
+
+.service-section-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #6ee7b7;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.service-man-card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-left: 4px solid #10b981;
+  border-radius: 6px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.service-man-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.service-man-role {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.service-man-status {
+  font-size: 0.75rem;
+  color: #38bdf8;
+  margin-top: 2px;
+}
+
+.service-man-company {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.btn-dispatch {
+  background: #0284c7;
+  color: #fff;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+  width: 100%;
+}
+
+.btn-dispatch:hover {
+  background: #0369a1;
+}
+
+.btn-dispatch.btn-dispatched {
+  background: #15803d;
+  cursor: default;
+}
+
 /* ===== Responsive ===== */
 @media (max-width: 1100px) {
   .app-body { flex-direction: column; }

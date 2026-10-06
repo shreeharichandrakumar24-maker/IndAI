@@ -75,6 +75,72 @@ def update_machine(machine_id: UUID, machine: MachineUpdate, db: Session = Depen
     db.refresh(db_machine)
     return db_machine
 
+@router.get("/{machine_id}/alert")
+def get_machine_alert(machine_id: UUID, db: Session = Depends(get_db)):
+    """Detailed alert status, breach parameters, and assigned maintenance service man for a machine."""
+    db_machine = db.query(Machine).filter(Machine.id == machine_id).first()
+    if not db_machine:
+        raise HTTPException(status_code=404, detail="Machine not found")
+    
+    from backend.services.abnormality import latest_telemetry, evaluate_telemetry, resolve_thresholds, open_incident_for_machine, find_service_technician
+    from backend.models.models import FactoryProfile, Employee, Maintenance
+    
+    thresholds = resolve_thresholds(db_machine.machine_type, db, db_machine.factory_id)
+    tel = latest_telemetry(db, machine_id)
+    eval_res = evaluate_telemetry(tel, thresholds)
+    incident = open_incident_for_machine(db, machine_id)
+    
+    company_name = "CNC / Mechanical"
+    if db_machine.factory_id:
+        f = db.query(FactoryProfile).filter(FactoryProfile.id == db_machine.factory_id).first()
+        if f: company_name = f.name or f.industry
+    else:
+        default_f = db.query(FactoryProfile).filter(FactoryProfile.is_default == True).first()
+        if default_f: company_name = default_f.name or default_f.industry
+    
+    service_man = None
+    if incident and incident.employee_id:
+        emp = db.query(Employee).filter(Employee.id == incident.employee_id).first()
+        if emp:
+            service_man = {"id": str(emp.id), "name": emp.name, "role": emp.role, "availability": emp.availability}
+    
+    if not service_man:
+        maint = db.query(Maintenance).filter(Maintenance.machine_id == machine_id, Maintenance.status == "PENDING").first()
+        if maint and maint.technician:
+            service_man = {"id": None, "name": maint.technician.split(" (")[0], "role": maint.technician, "availability": "ASSIGNED"}
+    
+    if not service_man:
+        tech = find_service_technician(db, db_machine, eval_res["breaches"])
+        if tech:
+            service_man = {"id": str(tech.id), "name": tech.name, "role": tech.role, "availability": tech.availability}
+            
+    return {
+        "machine_id": str(machine_id),
+        "machine_name": db_machine.name,
+        "machine_code": db_machine.machine_code or db_machine.name.split(" ")[0],
+        "company_name": company_name,
+        "health_status": db_machine.health_status,
+        "status": db_machine.status,
+        "is_abnormal": eval_res["abnormal"],
+        "severity": eval_res["severity"] or (incident.severity if incident else "NORMAL"),
+        "breaches": eval_res["breaches"],
+        "telemetry": {
+            "temperature": tel.temperature if tel else None,
+            "vibration": tel.vibration if tel else None,
+            "current": tel.current if tel else None,
+            "rpm": tel.rpm if tel else None,
+            "timestamp": tel.timestamp.isoformat() if tel and tel.timestamp else None,
+        } if tel else None,
+        "thresholds": thresholds,
+        "open_incident": {
+            "id": str(incident.id),
+            "severity": incident.severity,
+            "description": incident.description,
+            "created_at": incident.created_at.isoformat() if incident.created_at else None,
+        } if incident else None,
+        "service_man": service_man,
+    }
+
 @router.delete("/{machine_id}")
 def delete_machine(machine_id: UUID, db: Session = Depends(get_db)):
     db_machine = db.query(Machine).filter(Machine.id == machine_id).first()

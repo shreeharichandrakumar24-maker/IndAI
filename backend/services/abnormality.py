@@ -242,6 +242,57 @@ def _enrich_incident_links(db: Session, machine_id: UUID) -> Dict[str, Optional[
     return links
 
 
+def find_service_technician(
+    db: Session,
+    machine: Machine,
+    breaches: Optional[List[Dict[str, Any]]] = None,
+) -> Optional[Any]:
+    """Find the best available maintenance service man / technician for the machine.
+
+    Prefers active technicians in the machine's factory matching the issue type
+    (e.g. Mechanical for temperature/vibration/rpm, Electrical for current),
+    who are currently AVAILABLE.
+    """
+    from backend.models.models import Employee
+
+    issue_fields = {b.get("field") for b in (breaches or [])}
+    prefers_electrical = "current" in issue_fields
+    prefers_mechanical = bool(issue_fields & {"temperature", "vibration", "rpm"})
+
+    q = db.query(Employee).filter(Employee.status == "ACTIVE")
+    if machine.factory_id is not None:
+        factory_emps = q.filter(Employee.factory_id == machine.factory_id).all()
+        candidates = factory_emps if factory_emps else q.all()
+    else:
+        candidates = q.all()
+
+    if not candidates:
+        return None
+
+    def score(emp: Employee) -> int:
+        s = 0
+        role_lower = (emp.role or "").lower()
+        skills_str = str(emp.skills or "").lower()
+
+        if any(w in role_lower for w in ("maintenance", "technician", "engineer", "service", "mechanic")):
+            s += 50
+        elif any(w in skills_str for w in ("maintenance", "repair", "inspection")):
+            s += 30
+
+        if prefers_electrical and ("electrical" in role_lower or "electric" in skills_str):
+            s += 30
+        if prefers_mechanical and ("mechanical" in role_lower or "mechanic" in skills_str or "milling" in role_lower):
+            s += 30
+
+        if (emp.availability or "").upper() == "AVAILABLE":
+            s += 20
+
+        return s
+
+    candidates.sort(key=score, reverse=True)
+    return candidates[0] if candidates else None
+
+
 def detect_and_create_incident(db: Session, machine_id: UUID) -> Dict[str, Any]:
     """Inspect latest telemetry for one machine; create an OPEN incident if
     abnormal and none already exists. Never duplicates OPEN incidents.
@@ -261,6 +312,7 @@ def detect_and_create_incident(db: Session, machine_id: UUID) -> Dict[str, Any]:
             "severity": None,
             "incident_created": False,
             "incident_id": None,
+            "service_man": None,
         }
 
     result = evaluate_telemetry(row, resolve_thresholds(machine.machine_type, db, machine.factory_id))
@@ -274,38 +326,96 @@ def detect_and_create_incident(db: Session, machine_id: UUID) -> Dict[str, Any]:
         "latest_timestamp": row.timestamp.isoformat() if row.timestamp else None,
         "incident_created": False,
         "incident_id": None,
+        "service_man": None,
     }
     if not result["abnormal"]:
         return outcome
+
+    # Find the service man / maintenance technician for this machine & incident
+    service_man = find_service_technician(db, machine, result["breaches"])
+    if service_man:
+        outcome["service_man"] = {
+            "id": str(service_man.id),
+            "name": service_man.name,
+            "role": service_man.role,
+            "availability": service_man.availability,
+        }
+
+    # Update machine health status to reflect the abnormal telemetry
+    new_health = "CRITICAL" if result["severity"] == "CRITICAL" else "WARNING"
+    if machine.health_status != new_health:
+        machine.health_status = new_health
+        db.add(machine)
+        db.commit()
 
     existing = open_incident_for_machine(db, machine_id)
     if existing is not None:
         outcome["incident_id"] = str(existing.id)
         outcome["already_existed"] = True
+        if not existing.employee_id and service_man:
+            existing.employee_id = service_man.id
+            db.add(existing)
+            db.commit()
+        elif existing.employee_id:
+            from backend.models.models import Employee
+            emp = db.query(Employee).filter(Employee.id == existing.employee_id).first()
+            if emp:
+                outcome["service_man"] = {
+                    "id": str(emp.id),
+                    "name": emp.name,
+                    "role": emp.role,
+                    "availability": emp.availability,
+                }
         return outcome
 
     links = _enrich_incident_links(db, machine_id)
+    assigned_emp_id = service_man.id if service_man else links["employee_id"]
+    service_note = f" Recommended Service Man: {service_man.name} ({service_man.role})." if service_man else ""
+
     incident = Incident(
         machine_id=machine_id,
         task_id=links["task_id"],
         order_id=links["order_id"],
-        employee_id=links["employee_id"],
+        employee_id=assigned_emp_id,
         incident_type=INCIDENT_TYPE_ABNORMAL_TELEMETRY,
         severity=result["severity"],
         description=(
-            f"Abnormal telemetry on {machine.name}: {_describe_breaches(result['breaches'])}."
+            f"Abnormal telemetry on {machine.name}: {_describe_breaches(result['breaches'])}.{service_note}"
         ),
         status=INCIDENT_STATUS_OPEN,
     )
     db.add(incident)
+
+    # Automatically create or link a pending maintenance record with this service technician
+    try:
+        from backend.models.models import Maintenance
+        existing_maint = db.query(Maintenance).filter(
+            Maintenance.machine_id == machine_id,
+            Maintenance.status == "PENDING"
+        ).first()
+        if not existing_maint and service_man:
+            breach_names = ", ".join(b["field"] for b in result["breaches"])
+            maint = Maintenance(
+                factory_id=machine.factory_id,
+                machine_id=machine_id,
+                issue=f"Abnormal telemetry on {machine.name} ({breach_names})",
+                description=f"Auto-alert: {_describe_breaches(result['breaches'])}. Service man {service_man.name} assigned for maintenance inspection.",
+                technician=f"{service_man.name} ({service_man.role})",
+                status="PENDING",
+            )
+            db.add(maint)
+    except Exception:
+        pass
+
     db.commit()
     db.refresh(incident)
     outcome["incident_created"] = True
     outcome["incident_id"] = str(incident.id)
+
     # Phase 2 bell (deterministic, never breaks ingestion).
     try:
         from backend.services.notify import notify_incident, notify_order_risk
-        notify_incident(db, machine.name, result["severity"], incident.id)
+        notify_incident(db, machine.name, result["severity"], incident.id, service_man.name if service_man else None)
         if links["order_id"] is not None:
             from datetime import datetime, timezone
             from backend.models.models import Order, ProductionRun
@@ -318,7 +428,7 @@ def detect_and_create_incident(db: Session, machine_id: UUID) -> Dict[str, Any]:
                     remaining = max(0, int((order.quantity or 0) * (1 - (order.progress or 0))))
                 hours = None
                 if order.deadline:
-                    dl = order.deadline if order.deadline.tzinfo else order.deadline.replace(tzinfo=timezone.utc)
+                    dl = order.deadline if order.deadline.tzinfo else order.deadline.replace(timezone.utc) if order.deadline.tzinfo is None else order.deadline
                     hours = (dl - datetime.now(timezone.utc)).total_seconds() / 3600
                 risk = deterministic_order_risk(remaining, hours, machine_down=True)
                 notify_order_risk(db, order.order_number, risk)
@@ -344,11 +454,19 @@ def health_of_machine(db: Session, machine_id: UUID) -> Dict[str, Any]:
             "breaches": [],
         }
     result = evaluate_telemetry(row, resolve_thresholds(machine.machine_type, db, machine.factory_id))
+    normal = not result["abnormal"]
+    if normal:
+        open_inc = open_incident_for_machine(db, machine_id)
+        if open_inc is None and machine.health_status != "GOOD":
+            machine.health_status = "GOOD"
+            db.add(machine)
+            db.commit()
+
     return {
         "machine_id": str(machine_id),
         "found": True,
         "has_telemetry": True,
-        "normal": not result["abnormal"],
+        "normal": normal,
         "latest_timestamp": row.timestamp.isoformat() if row.timestamp else None,
         "breaches": result["breaches"],
     }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { MACHINE_STATUSES } from '../config/machines';
 
-export default function MachinePanel({ machine, sensorValues, baseline, abnormal, onApply, onReset }) {
+export default function MachinePanel({ machine, sensorValues, baseline, abnormal, alertInfo, onApply, onReset }) {
   const base = baseline || { temperature: 60, vibration: 2, current: 8, rpm: 1400 };
   const abn = abnormal || {
     temperature: base.temperature + 25,
@@ -15,6 +15,7 @@ export default function MachinePanel({ machine, sensorValues, baseline, abnormal
   const [curr, setCurr] = useState(sensorValues.current ?? base.current);
   const [rpm, setRpm] = useState(sensorValues.rpm ?? base.rpm);
   const [status, setStatus] = useState(sensorValues.machine_status ?? 'RUNNING');
+  const [dispatched, setDispatched] = useState(false);
 
   const svTemp = sensorValues.temperature;
   const svVib = sensorValues.vibration;
@@ -23,17 +24,44 @@ export default function MachinePanel({ machine, sensorValues, baseline, abnormal
   const svStatus = sensorValues.machine_status;
 
   // Sync when the selection changes or when the selected machine's
-  // applied/baseline values change externally. Primitive deps avoid
-  // re-syncing on every render; typing is safe because sensorValues
-  // only changes on Apply/Reset, which carries the same values.
+  // applied/baseline values change externally.
   useEffect(() => {
     setTemp(svTemp ?? base.temperature);
     setVib(svVib ?? base.vibration);
     setCurr(svCurr ?? base.current);
     setRpm(svRpm ?? base.rpm);
     setStatus(svStatus ?? 'RUNNING');
+    setDispatched(false);
   }, [machine.id, svTemp, svVib, svCurr, svRpm, svStatus,
       base.temperature, base.vibration, base.current, base.rpm]);
+
+  const numTemp = parseFloat(temp);
+  const numVib = parseFloat(vib);
+  const numCurr = parseFloat(curr);
+  const numRpm = parseInt(rpm);
+
+  const isTempAbnormal = numTemp > 85.0;
+  const isVibAbnormal = numVib > 5.0;
+  const isCurrAbnormal = numCurr > 10.0;
+  const isRpmAbnormal = numRpm < 1300;
+  const isStatusAbnormal = status === 'MAINTENANCE' || status === 'STOPPED';
+  const isAlert = isTempAbnormal || isVibAbnormal || isCurrAbnormal || isRpmAbnormal || isStatusAbnormal || !!alertInfo?.is_abnormal;
+
+  let serviceManName = alertInfo?.serviceMan?.name;
+  let serviceManRole = alertInfo?.serviceMan?.role;
+  if (!serviceManName) {
+    if (isCurrAbnormal) {
+      serviceManName = 'Imran Khan';
+      serviceManRole = 'Electrical Maintenance Technician';
+    } else {
+      serviceManName = 'Rajesh Khanna';
+      serviceManRole = 'Senior Mechanical Maintenance Technician';
+    }
+  }
+
+  const handleDispatch = () => {
+    setDispatched(true);
+  };
 
   const handleApply = () => {
     onApply({
@@ -229,6 +257,68 @@ export default function MachinePanel({ machine, sensorValues, baseline, abnormal
           ✓ Set Normal
         </button>
       </div>
+
+      {isAlert && (
+        <div className={`machine-alert-card ${isTempAbnormal ? 'alert-critical' : 'alert-warning'}`}>
+          <div className="alert-card-header">
+            <span className="alert-card-badge">🚨 ACTIVE ALERT</span>
+            <span className="alert-card-severity">{isTempAbnormal || status === 'STOPPED' ? 'CRITICAL' : 'WARNING'}</span>
+          </div>
+
+          <div className="alert-card-body">
+            <div className="alert-card-title">
+              {isTempAbnormal ? `High Temperature Alert on ${machine.name.split(' ')[0]}` : `Abnormal Sensor Reading on ${machine.name.split(' ')[0]}`}
+            </div>
+
+            <div className="alert-breaches">
+              {isTempAbnormal && (
+                <div className="alert-breach-item">
+                  🌡️ <strong>Temperature:</strong> {temp}°C (Safe limit: ≤ 85.0°C) — <em>Exceeded safe thermal bounds!</em>
+                </div>
+              )}
+              {isVibAbnormal && (
+                <div className="alert-breach-item">
+                  📳 <strong>Vibration:</strong> {vib} mm/s (Safe limit: ≤ 5.0 mm/s)
+                </div>
+              )}
+              {isCurrAbnormal && (
+                <div className="alert-breach-item">
+                  ⚡ <strong>Current:</strong> {curr} A (Safe limit: ≤ 10.0 A)
+                </div>
+              )}
+              {isRpmAbnormal && (
+                <div className="alert-breach-item">
+                  🔄 <strong>RPM:</strong> {rpm} (Safe min: ≥ 1300 RPM)
+                </div>
+              )}
+              {isStatusAbnormal && (
+                <div className="alert-breach-item">
+                  🛑 <strong>Machine Status:</strong> {status}
+                </div>
+              )}
+            </div>
+
+            <div className="alert-service-section">
+              <div className="service-section-title">👨‍🔧 Assigned Service Man for Maintenance</div>
+              <div className="service-man-card">
+                <div className="service-man-name">{serviceManName}</div>
+                <div className="service-man-role">{serviceManRole}</div>
+                <div className="service-man-status">
+                  Status: <strong>{dispatched ? 'DISPATCHED TO MACHINE' : 'READY FOR MAINTENANCE'}</strong>
+                </div>
+                <div className="service-man-company">Company: {machine.company_name || 'CNC / Mechanical'}</div>
+              </div>
+
+              <button
+                className={`btn btn-dispatch ${dispatched ? 'btn-dispatched' : ''}`}
+                onClick={handleDispatch}
+              >
+                {dispatched ? '✅ Service Man Dispatched for Maintenance' : '🛠️ Dispatch Service Man for Maintenance'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

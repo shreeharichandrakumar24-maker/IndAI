@@ -13,19 +13,38 @@ async def _mocked():
 
     async def fake_get(path, params=None):
         if path == "/machines":
-            return 200, [{"id": "m1", "name": "M-001 CNC Mill", "status": "OPERATIONAL",
-                          "health_status": "GOOD"}]
+            return 200, [
+                {"id": "m1", "name": "M-001 CNC Mill", "status": "OPERATIONAL", "health_status": "GOOD", "company_name": "CNC / Mechanical"},
+                {"id": "m2", "name": "M-002 Lathe Machine", "status": "OPERATIONAL", "health_status": "CRITICAL", "company_name": "CNC / Mechanical"}
+            ]
         if path == "/employees":
-            return 200, [{"id": "e1", "name": "Arun Prakash", "role": "CNC Operator",
-                          "availability": "AVAILABLE", "shift": "Morning", "skills": {"items": ["CNC operation"]}}]
+            return 200, [
+                {"id": "e1", "name": "Arun Prakash", "role": "CNC Operator",
+                 "availability": "AVAILABLE", "shift": "Morning", "skills": {"items": ["CNC operation"]}},
+                {"id": "e2", "name": "Rajesh Khanna", "role": "Senior Mechanical Maintenance Technician",
+                 "availability": "AVAILABLE", "shift": "Morning", "skills": {"items": ["Maintenance"]}}
+            ]
         if path == "/tasks":
             return 200, [{"id": "t1", "name": "Mill brackets", "status": "PENDING",
                           "required_skill": "CNC operation", "employee_id": None}]
         if path == "/incidents":
+            if params and params.get("machine_id") == "m2":
+                return 200, [{
+                    "id": "inc2",
+                    "machine_id": "m2",
+                    "severity": "CRITICAL",
+                    "description": "Abnormal telemetry: temperature 96.5 C",
+                    "employee_name": "Rajesh Khanna",
+                    "employee_role": "Senior Mechanical Maintenance Technician",
+                    "company_name": "CNC / Mechanical"
+                }]
             return 200, []
         if path == "/ai/assistant/quick/overview":
             return 200, {"summary": "mock overview"}
         if path.startswith("/telemetry/"):
+            if "m2" in path:
+                return 200, [{"temperature": 96.5, "vibration": 2.0, "current": 8.0,
+                              "rpm": 1450, "machine_status": "RUNNING"}]
             return 200, [{"temperature": 68, "vibration": 2.0, "current": 8.0,
                           "rpm": 1450, "machine_status": "RUNNING"}]
         if path == "/allocation/candidates":
@@ -133,6 +152,13 @@ async def _mocked():
     r = await by_name["get_machine_status"](ctx, machine="M-001")
     assert "M-001" in r, r
     print("PASS get_machine_status:", r[:80])
+    r2 = await by_name["get_machine_status"](ctx, machine="M-002")
+    assert "M-002" in r2, r2
+    assert "CNC / Mechanical" in r2, r2
+    assert "96.5 C" in r2, r2
+    assert "CRITICAL" in r2, r2
+    assert "Rajesh Khanna" in r2, r2
+    print("PASS get_machine_status abnormal alert & service man:", r2[:120])
     r = await by_name["list_unassigned_tasks"](ctx)
     assert "Mill brackets" in r, r
     print("PASS list_unassigned_tasks:", r[:80])

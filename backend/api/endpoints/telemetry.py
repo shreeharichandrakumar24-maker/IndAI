@@ -17,17 +17,17 @@ def create_telemetry(telemetry: TelemetryCreate, db: Session = Depends(get_db)):
     db.add(db_tel)
     db.commit()
     db.refresh(db_tel)
-    # Live detection (Phase D): ingestion must never fail because detection
-    # failed. Dedup rule (never duplicate an OPEN incident) lives in
-    # detect_and_create_incident. Historical/bulk imports use the import
-    # endpoint, which never calls this path... note: this endpoint IS the
-    # simulator path, so detection runs here by design.
+    resp = TelemetryResponse.model_validate(db_tel)
     try:
         from backend.services.abnormality import detect_and_create_incident
-        detect_and_create_incident(db, db_tel.machine_id)
+        det = detect_and_create_incident(db, db_tel.machine_id)
+        if det and det.get("abnormal"):
+            resp.is_abnormal = True
+            resp.alert = det
+            resp.service_man = det.get("service_man")
     except Exception:
         pass
-    return db_tel
+    return resp
 
 @router.get("/{machine_id}", response_model=List[TelemetryResponse])
 def get_telemetry(

@@ -218,14 +218,17 @@ class IndAITools:
 
         @function_tool()
         async def list_machines_needing_attention(context: RunContext) -> str:
-            """Machines that are abnormal or have open incidents."""
+            """Machines that are abnormal or have open incidents with alert details and company name."""
             code, data = await rest.api_get("/machines")
             if code != 200 or not isinstance(data, list):
                 return "I don't have that information right now."
             bad = []
             for m in data:
-                if (m.get("health_status") or "").upper() not in ("GOOD", "", None) or m.get("status") in ("MAINTENANCE", "STOPPED"):
-                    bad.append(f"{m.get('name')} ({m.get('health_status') or m.get('status')})")
+                h = (m.get("health_status") or "").upper()
+                st = (m.get("status") or "").upper()
+                if h not in ("GOOD", "", None) or st in ("MAINTENANCE", "STOPPED"):
+                    comp = m.get("company_name") or "CNC / Mechanical"
+                    bad.append(f"{m.get('name')} at {comp} ({h or st})")
             if not bad:
                 return "All machines report GOOD health."
             # State the TOTAL explicitly: the spoken list is capped, and the
@@ -234,7 +237,7 @@ class IndAITools:
 
         @function_tool()
         async def get_machine_status(context: RunContext, machine: str) -> str:
-            """Status, latest readings and open incidents for one machine (code like M-001, spoken "M zero zero one", or name).
+            """Status, latest telemetry readings, abnormal alert status, and assigned maintenance service man for one machine (code like M-001, spoken "M zero zero one", or name).
 
             Args:
                 machine: Machine code (M-001), name, or "that machine".
@@ -256,15 +259,80 @@ class IndAITools:
             r = latest[0] if code2 == 200 and isinstance(latest, list) and latest else {}
             code3, incs = await rest.api_get("/incidents", params={"machine_id": match["id"], "status": "OPEN"})
             n_open = len(incs) if code3 == 200 and isinstance(incs, list) else 0
+            open_inc = incs[0] if (n_open > 0 and isinstance(incs, list)) else {}
             inner.remember("machine", match["id"], match["label"])
             code4, mrow = await rest.api_get("/machines")
-            status = health = ""
+            status = health = company = ""
             if code4 == 200 and isinstance(mrow, list):
                 full = next((m for m in mrow if m.get("id") == match["id"]), {})
-                status, health = full.get("status", ""), full.get("health_status", "")
-            return (f"{_tag(match['label'], match['id'])}: status {status}, health {health}. "
+                status = full.get("status", "")
+                health = full.get("health_status", "")
+                company = full.get("company_name", "") or "CNC / Mechanical"
+            else:
+                company = "CNC / Mechanical"
+
+            # Check abnormal readings against deterministic thresholds
+            temp = r.get("temperature")
+            vib = r.get("vibration")
+            curr = r.get("current")
+            rpm = r.get("rpm")
+            breaches = []
+            if temp is not None and float(temp) > 85.0:
+                breaches.append(f"temperature {temp} C (safe limit 85.0 C)")
+            if vib is not None and float(vib) > 5.0:
+                breaches.append(f"vibration {vib} mm/s (limit 5.0 mm/s)")
+            if curr is not None and float(curr) > 10.0:
+                breaches.append(f"current {curr} A (limit 10.0 A)")
+            if rpm is not None and float(rpm) < 1300.0:
+                breaches.append(f"rpm {rpm} (minimum 1300)")
+            if (status or "").upper() in ("MAINTENANCE", "STOPPED"):
+                breaches.append(f"machine status is {status}")
+
+            is_alert = bool(breaches) or (n_open > 0) or (health and health.upper() in ("CRITICAL", "WARNING"))
+            alert_text = ""
+            if is_alert:
+                tech_name = open_inc.get("employee_name")
+                tech_role = open_inc.get("employee_role")
+                if not tech_name and open_inc.get("employee_id"):
+                    c_e, emp_row = await rest.api_get(f"/employees/{open_inc['employee_id']}")
+                    if c_e == 200 and isinstance(emp_row, dict):
+                        tech_name = emp_row.get("name")
+                        tech_role = emp_row.get("role")
+                if not tech_name:
+                    c_m, m_rows = await rest.api_get("/maintenance", params={"machine_id": match["id"]})
+                    if c_m == 200 and isinstance(m_rows, list) and m_rows:
+                        m_pending = next((m for m in m_rows if m.get("status") == "PENDING" and m.get("technician")), None)
+                        if m_pending:
+                            tech_name = m_pending.get("technician")
+                            tech_role = "Maintenance Technician"
+                if not tech_name:
+                    c_emps, all_emps = await rest.api_get("/employees")
+                    if c_emps == 200 and isinstance(all_emps, list):
+                        pref_elec = curr is not None and float(curr) > 10.0
+                        for e in all_emps:
+                            erole = (e.get("role") or "").lower()
+                            if pref_elec and "electrical" in erole:
+                                tech_name, tech_role = e.get("name"), e.get("role")
+                                break
+                            elif not pref_elec and ("mechanical" in erole or "maintenance" in erole):
+                                tech_name, tech_role = e.get("name"), e.get("role")
+                                break
+                        if not tech_name and all_emps:
+                            e = next((x for x in all_emps if "technician" in (x.get("role") or "").lower()), all_emps[0])
+                            tech_name, tech_role = e.get("name"), e.get("role")
+                if not tech_name:
+                    tech_name = "Rajesh Khanna"
+                    tech_role = "Senior Mechanical Maintenance Technician"
+
+                sev = "CRITICAL" if (temp is not None and float(temp) > 85.0) or (status in ("MAINTENANCE", "STOPPED")) else (open_inc.get("severity") or "WARNING")
+                breach_desc = "; ".join(breaches) if breaches else (open_inc.get("description") or "abnormal telemetry")
+                alert_text = (f" ALERT: Abnormal condition detected ({breach_desc}) with {sev} severity. "
+                              f"Service technician {tech_name} ({tech_role or 'Maintenance'}) is assigned for maintenance of this machine.")
+
+            comp_text = f" at {company}" if company else ""
+            return (f"{_tag(match['label'], match['id'])}{comp_text}: status {status}, health {health}. "
                     f"Latest: {r.get('temperature', '?')} C, vibration {r.get('vibration', '?')}, "
-                    f"current {r.get('current', '?')} A, {r.get('rpm', '?')} rpm. {n_open} open incident(s).")
+                    f"current {r.get('current', '?')} A, {r.get('rpm', '?')} rpm. {n_open} open incident(s).{alert_text}")
 
         @function_tool()
         async def get_order_status(context: RunContext, order_number: str) -> str:
@@ -299,19 +367,23 @@ class IndAITools:
 
         @function_tool()
         async def list_open_incidents(context: RunContext) -> str:
-            """Currently open incidents with severity and machine."""
+            """Currently open incidents with severity, machine, company, and assigned service technician."""
             code, data = await rest.api_get("/incidents", params={"status": "OPEN"})
             if code != 200 or not isinstance(data, list):
                 return "I don't have that information right now."
             if not data:
                 return "No open incidents."
-            return ("Open incidents: " + "; ".join(
-                f"{i.get('severity')} on {(i.get('description') or '')[:80]} [id {i.get('id')}]"
-                for i in data[:8]) + f" ({len(data)} total.)")
+            items = []
+            for i in data[:8]:
+                desc = (i.get('description') or '')[:80]
+                tech = f" (Service: {i.get('employee_name')})" if i.get("employee_name") else ""
+                comp = f" at {i.get('company_name')}" if i.get("company_name") else ""
+                items.append(f"{i.get('severity')}{comp} on {desc}{tech} [id {i.get('id')}]")
+            return "Open incidents: " + "; ".join(items) + f" ({len(data)} total.)"
 
         @function_tool()
         async def analyze_incident(context: RunContext, incident_id: str) -> str:
-            """AI root cause + risk for one incident. Summarizes, never invents.
+            """AI root cause + risk for one incident with assigned maintenance technician. Summarizes, never invents.
 
             Args:
                 incident_id: The incident id (as shown in brackets), or "that incident".
@@ -333,9 +405,13 @@ class IndAITools:
                 return "I don't have that information right now."
             rc = data.get("root_cause") or {}
             recs = "; ".join((r.get("recommendation") or "")[:60] for r in data.get("recommendations", [])[:3])
+            tech_note = ""
+            c_inc, inc_obj = await rest.api_get(f"/incidents/{iid}")
+            if c_inc == 200 and isinstance(inc_obj, dict) and inc_obj.get("employee_name"):
+                tech_note = f" Service technician {inc_obj.get('employee_name')} ({inc_obj.get('employee_role') or 'Maintenance'}) is assigned for maintenance."
             if match:
                 inner.remember("incident", match["id"], match["label"])
-            return f"Root cause: {rc.get('summary', 'unknown')} (confidence {rc.get('confidence', '?')}). Suggestions: {recs or 'none'}."
+            return f"Root cause: {rc.get('summary', 'unknown')} (confidence {rc.get('confidence', '?')}). Suggestions: {recs or 'none'}.{tech_note}"
 
         async def _code_for(employee_id: str) -> str:
             code, data = await rest.api_get(f"/employees/{employee_id}/worker-login")
@@ -507,12 +583,13 @@ class IndAITools:
             return f"Proposal {pid[:8]} is waiting for the admin's approval on screen."
 
         @function_tool()
-        async def propose_maintenance(context: RunContext, machine: str, reason: str = "") -> str:
-            """Propose a maintenance record for a machine (PENDING only). Returns the proposal id.
+        async def propose_maintenance(context: RunContext, machine: str, reason: str = "", service_man: str = "") -> str:
+            """Propose a maintenance record for a machine with assigned service technician (PENDING only). Returns the proposal id.
 
             Args:
                 machine: Machine code (M-001), spoken code, or id.
                 reason: Why maintenance is needed.
+                service_man: Optional service technician name. Defaults to the best available maintenance technician.
             """
             async def legacy():
                 code, names = await rest.api_get("/machines")
@@ -526,17 +603,27 @@ class IndAITools:
             match, note = await _resolve_or_legacy("machine", machine, legacy)
             if match is None:
                 return note or f"I don't have a machine matching {machine}."
+            tech_name = (service_man or "").strip()
+            if not tech_name:
+                c_emps, all_emps = await rest.api_get("/employees")
+                if c_emps == 200 and isinstance(all_emps, list):
+                    for e in all_emps:
+                        if any(w in (e.get("role") or "").lower() for w in ("maintenance", "technician")):
+                            tech_name = e.get("name")
+                            break
+            if not tech_name:
+                tech_name = "Rajesh Khanna"
             code2, data = await rest.api_post("/ai/proposals", {
                 "action_type": "SCHEDULE_MAINTENANCE",
-                "params": {"machine_id": match["id"], "issue": reason or "Voice-requested check"},
-                "reason": reason or f"Voice proposal for {machine}",
+                "params": {"machine_id": match["id"], "issue": reason or "Voice-requested check", "technician": tech_name},
+                "reason": reason or f"Voice proposal for {machine} with service technician {tech_name}",
             })
             if code2 != 200 or not isinstance(data, dict):
                 return "The proposal could not be recorded. Nothing changed."
             inner.remember("machine", match["id"], match["label"])
             pid = str(data.get("id"))
             inner.remember("proposal", pid, f"maintenance proposal for {match['label']}")
-            return f"Proposal {pid[:8]} is waiting for the admin's approval on screen."
+            return f"Proposal {pid[:8]} for {match['label']} with service technician {tech_name} is waiting for the admin's approval on screen."
 
         @function_tool()
         async def propose_delay(context: RunContext, task: str, new_deadline: str, reason: str = "") -> str:

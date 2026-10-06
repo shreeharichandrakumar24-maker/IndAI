@@ -17,4 +17,7 @@ class TelemetryCreate(TelemetryBase):
 
 class TelemetryResponse(TelemetryBase):
     id: UUID
+    is_abnormal: Optional[bool] = False
+    alert: Optional[Dict[str, Any]] = None
+    service_man: Optional[Dict[str, Any]] = None
     model_config = ConfigDict(from_attributes=True)

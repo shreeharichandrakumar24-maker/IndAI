@@ -34,12 +34,13 @@ def _add(db: Session, user_id: UUID, title: str, body: str = "", link: str = "",
             pass
 
 
-def notify_incident(db: Session, machine_name: str, severity: str, incident_id: UUID):
+def notify_incident(db: Session, machine_name: str, severity: str, incident_id: UUID, service_man_name: Optional[str] = None):
     """New OPEN incident -> bell for managers + operators, plain language."""
     try:
         code = (machine_name or "A machine").split(" · ")[0]
         title = f"Machine {code} needs attention ({severity})"
-        body = f"Abnormal readings on {machine_name}. Open the incident to inspect and schedule repair."
+        tech_note = f" Service technician {service_man_name} assigned for maintenance." if service_man_name else " Open the incident to inspect and schedule repair."
+        body = f"Abnormal readings on {machine_name}.{tech_note}"
         for u in _recipients(db):
             _add(db, u.id, title, body, link="incidents", kind="INCIDENT_OPENED")
     except Exception:

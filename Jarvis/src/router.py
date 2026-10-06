@@ -72,7 +72,7 @@ _EMP_RE = re.compile(r"\bemp[-\s]*0*(\d+)\b")
 _DATA_RE = re.compile(
     r"\?|\b(what|which|how|why|when|who|whom|whose|many|much|status|health|"
     r"temperature|vibration|telemetry|readings?|workload|available|attention|"
-    r"late|risk|summary|tell|explain)\b"
+    r"alert|alerts|service|technician|maintenance|abnormal|late|risk|summary|tell|explain)\b"
 )
 
 # Fragment merge: join two user turns within this window when the first is a

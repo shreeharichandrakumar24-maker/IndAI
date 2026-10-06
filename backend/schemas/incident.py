@@ -28,6 +28,10 @@ class IncidentUpdate(BaseModel):
 
 class IncidentResponse(IncidentBase):
     id: UUID
+    employee_name: Optional[str] = None
+    employee_role: Optional[str] = None
+    machine_name: Optional[str] = None
+    company_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
