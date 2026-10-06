@@ -38,6 +38,8 @@ def _row_to_response(row: FactoryProfile, source: Optional[str] = None) -> dict:
         source = profile.get("_source", "preset") if isinstance(profile, dict) else "preset"
     return {
         "id": str(row.id),
+        "name": row.name,
+        "is_default": bool(row.is_default),
         "industry": row.industry,
         "status": row.status,
         "answers": row.answers,
@@ -48,6 +50,12 @@ def _row_to_response(row: FactoryProfile, source: Optional[str] = None) -> dict:
 
 def _get_single(db: Session) -> Optional[FactoryProfile]:
     try:
+        # Multi-company: when a factory is selected (X-Factory-Id), operate on
+        # exactly that company's profile row. No header -> legacy behavior
+        # (the newest profile row, i.e. the original single factory).
+        scope = db.info.get("factory_scope")
+        if scope:
+            return db.query(FactoryProfile).filter(FactoryProfile.id == scope["uuid"]).first()
         return db.query(FactoryProfile).order_by(FactoryProfile.updated_at.desc()).first()
     except ProgrammingError:
         raise HTTPException(status_code=500, detail=MIGRATION_HINT)

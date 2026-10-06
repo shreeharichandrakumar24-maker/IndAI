@@ -14,7 +14,7 @@ function toneForRole(role) {
   return 'neutral';
 }
 
-export default function Topbar({ title, subtitle, crumb, systemStatus, user, onSignOut, onNavigate, onMenu, theme, onToggleTheme }) {
+export default function Topbar({ title, subtitle, crumb, systemStatus, user, onSignOut, onNavigate, onMenu, theme, onToggleTheme, onSwitchFactory, factoryName }) {
   const meta = STATUS_META[systemStatus] || STATUS_META.checking;
   return (
     <header className="topbar">
@@ -33,6 +33,18 @@ export default function Topbar({ title, subtitle, crumb, systemStatus, user, onS
           )}
         </div>
       </div>
+      {factoryName && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span className="muted" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }} title={factoryName}>
+            🏭 {factoryName}
+          </span>
+          {onSwitchFactory && (
+            <button type="button" className="btn-small" onClick={onSwitchFactory} title="Switch company / factory">
+              Switch Company
+            </button>
+          )}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         {onToggleTheme && (
           <button

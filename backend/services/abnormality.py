@@ -57,23 +57,27 @@ def default_thresholds() -> Dict[str, float]:
     }
 
 
-def resolve_thresholds(machine_type: Optional[str], db: Optional[Session] = None) -> Dict[str, float]:
+def resolve_thresholds(machine_type: Optional[str], db: Optional[Session] = None,
+                       factory_id: Optional[UUID] = None) -> Dict[str, float]:
     """Per-machine_type thresholds from the approved factory profile.
 
     Deterministic. Falls back to defaults when no approved profile exists
     or the table is missing (fresh installs before migration 001).
+
+    Multi-company: when ``factory_id`` is given (the machine's owning
+    factory) that factory's approved thresholds are used. ``factory_id``
+    None keeps the legacy behavior (newest approved profile).
     """
     base = default_thresholds()
     if db is None:
         return base
     try:
         from backend.models.models import FactoryProfile
-        row = (
-            db.query(FactoryProfile)
-            .filter(FactoryProfile.status == "APPROVED")
-            .order_by(FactoryProfile.updated_at.desc())
-            .first()
-        )
+        q = db.query(FactoryProfile).filter(FactoryProfile.status == "APPROVED")
+        if factory_id is not None:
+            row = q.filter(FactoryProfile.id == factory_id).first()
+        else:
+            row = q.order_by(FactoryProfile.updated_at.desc()).first()
         if row is None or not isinstance(row.profile, dict):
             return base
         sets = (row.profile or {}).get("thresholds") or {}
@@ -259,7 +263,7 @@ def detect_and_create_incident(db: Session, machine_id: UUID) -> Dict[str, Any]:
             "incident_id": None,
         }
 
-    result = evaluate_telemetry(row, resolve_thresholds(machine.machine_type, db))
+    result = evaluate_telemetry(row, resolve_thresholds(machine.machine_type, db, machine.factory_id))
     outcome: Dict[str, Any] = {
         "machine_id": str(machine_id),
         "found": True,
@@ -339,7 +343,7 @@ def health_of_machine(db: Session, machine_id: UUID) -> Dict[str, Any]:
             "latest_timestamp": None,
             "breaches": [],
         }
-    result = evaluate_telemetry(row, resolve_thresholds(machine.machine_type, db))
+    result = evaluate_telemetry(row, resolve_thresholds(machine.machine_type, db, machine.factory_id))
     return {
         "machine_id": str(machine_id),
         "found": True,

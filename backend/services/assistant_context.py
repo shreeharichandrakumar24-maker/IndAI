@@ -43,13 +43,23 @@ def build_assistant_context(db: Session) -> Dict[str, Any]:
         .order_by(AIRecommendation.created_at.desc()).limit(10).all()
     )
     industry = None
+    factory_name = None
+    ai_preferences = None
     try:
         from backend.models.models import FactoryProfile
-        prof = (
-            db.query(FactoryProfile).filter(FactoryProfile.status == "APPROVED")
-            .order_by(FactoryProfile.updated_at.desc()).first()
-        )
-        industry = prof.industry if prof else None
+        from backend.services.factory import normalize_onboarding
+        q = db.query(FactoryProfile)
+        scope = db.info.get("factory_scope") if hasattr(db, "info") else None
+        if scope:
+            prof = q.filter(FactoryProfile.id == scope["uuid"]).first()
+        else:
+            prof = q.filter(FactoryProfile.status == "APPROVED").order_by(
+                FactoryProfile.updated_at.desc()).first()
+        if prof is not None:
+            industry = prof.industry
+            factory_name = prof.name
+            sec = (normalize_onboarding(prof.onboarding).get("sections") or {}).get("ai_preferences") or {}
+            ai_preferences = sec.get("data") or None
     except Exception:
         pass
 
@@ -68,6 +78,8 @@ def build_assistant_context(db: Session) -> Dict[str, Any]:
 
     return {
         "industry": industry,
+        "factory_name": factory_name,
+        "ai_preferences": ai_preferences,
         "counts": {
             "machines": len(machines), "open_incidents": len(open_incs),
             "active_orders": len(active_orders), "open_tasks": len(open_tasks),

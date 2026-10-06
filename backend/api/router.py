@@ -1,9 +1,11 @@
 from fastapi import APIRouter
-from .endpoints import health, employees, machines, orders, tasks, production, telemetry, maintenance, incidents, profile, imports, ai, memory, users, notifications, reports, plans, smart_split, assistant, worker_auth, allocation, voice, worker, resolve, commands
+from .endpoints import health, employees, machines, orders, tasks, production, telemetry, maintenance, incidents, profile, imports, ai, memory, users, notifications, reports, plans, smart_split, assistant, worker_auth, allocation, voice, worker, resolve, commands, factories, onboarding, what_if
 
 api_router = APIRouter()
 
 api_router.include_router(health.router, prefix="/health", tags=["health"])
+api_router.include_router(factories.router, prefix="/factories", tags=["factories"])
+api_router.include_router(onboarding.router, prefix="/onboarding", tags=["onboarding"])
 api_router.include_router(employees.router, prefix="/employees", tags=["employees"])
 api_router.include_router(machines.router, prefix="/machines", tags=["machines"])
 api_router.include_router(orders.router, prefix="/orders", tags=["orders"])
@@ -30,3 +32,4 @@ api_router.include_router(voice.router, prefix="/voice", tags=["voice"])
 api_router.include_router(worker.router, prefix="/worker", tags=["worker"])
 api_router.include_router(resolve.router, prefix="/resolve", tags=["resolve"])
 api_router.include_router(commands.router, prefix="/ai/commands", tags=["commands"])
+api_router.include_router(what_if.router, prefix="/what-if", tags=["what-if"])

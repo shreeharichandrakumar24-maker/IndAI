@@ -27,12 +27,20 @@ MAX_ROWS = 20_000
 
 TARGETS = ("telemetry", "machines", "employees", "orders")
 
-# Whitelist: exactly the existing Create-schema fields (+ machine_code alias for telemetry).
+# Whitelist: exactly the existing Create-schema fields plus the onboarding-added
+# model columns (migration 008). Never accept factory_id from a file.
 TARGET_FIELDS: Dict[str, List[str]] = {
     "telemetry": ["machine_code", "machine_id", "temperature", "vibration", "current", "rpm", "machine_status", "timestamp"],
-    "machines": ["name", "machine_type", "location", "status", "health_status"],
-    "employees": ["name", "role", "skills", "certifications", "shift", "status", "availability"],
+    "machines": ["name", "machine_code", "machine_type", "department", "criticality", "location", "status", "health_status"],
+    "employees": ["name", "employee_code", "role", "department", "experience_years", "skills", "certifications", "shift", "status", "availability"],
     "orders": ["order_number", "customer_name", "product", "quantity", "priority", "status", "deadline", "progress"],
+}
+
+# Model-only (onboarding) columns: present on the SQLAlchemy models but not on
+# the Create schemas, so they are merged onto the model kwargs after validation.
+EXTRA_FIELDS: Dict[str, Tuple[str, ...]] = {
+    "machines": ("machine_code", "department", "criticality"),
+    "employees": ("employee_code", "department", "experience_years"),
 }
 
 # Messy-header aliases for the deterministic fallback (Temp, Temp(C), Amp, Speed, Mach No, ...).
@@ -47,29 +55,35 @@ ALIASES: Dict[str, Dict[str, List[str]]] = {
         "timestamp": ["time", "timestamp", "date", "datetime", "recorded_at", "ts"],
     },
     "machines": {
-        "name": ["name", "machine", "machine name", "equipment", "asset", "code"],
+        "name": ["name", "machine", "machine name", "machine_name", "equipment", "asset", "asset name"],
+        "machine_code": ["machine id", "machine_id", "machine code", "machine_code", "machinecode", "asset id", "asset_id", "equipment id", "code"],
         "machine_type": ["type", "machine_type", "machine type", "category", "kind"],
+        "department": ["department", "dept"],
+        "criticality": ["criticality", "critical"],
         "location": ["location", "bay", "area", "site", "loc"],
         "status": ["status", "state"],
         "health_status": ["health", "health_status", "health status", "condition"],
     },
     "employees": {
-        "name": ["name", "employee", "employee name", "full name", "worker"],
-        "role": ["role", "job", "title", "position", "job title"],
-        "skills": ["skills", "skill", "competencies"],
-        "certifications": ["certifications", "certs", "certificates", "cert"],
+        "name": ["name", "employee", "employee name", "employee_name", "full name", "full_name", "worker"],
+        "employee_code": ["employee id", "employee_id", "emp id", "emp_id", "employee code", "employee_code", "employeecode", "emp code", "emp_code", "empcode", "id", "code"],
+        "role": ["role", "job", "title", "position", "job title", "designation"],
+        "department": ["department", "dept"],
+        "experience_years": ["experience", "experience_years", "exp", "years", "years of experience"],
+        "skills": ["skills", "skill", "competencies", "competency"],
+        "certifications": ["certifications", "certs", "certificates", "cert", "certification"],
         "shift": ["shift", "shifts"],
         "status": ["status", "emp status"],
         "availability": ["availability", "available", "avail"],
     },
     "orders": {
-        "order_number": ["order_number", "order no", "orderno", "order #", "order id", "order_number ", "po", "order"],
+        "order_number": ["order_number", "order no", "orderno", "order #", "order id", "order_id", "po", "order"],
         "customer_name": ["customer", "customer_name", "customer name", "client", "client name"],
-        "product": ["product", "item", "part", "product name", "description"],
+        "product": ["product", "product name", "product_name", "item", "part", "description"],
         "quantity": ["qty", "quantity", "amount", "count", "units"],
         "priority": ["priority", "prio", "urgency"],
         "status": ["status", "order status", "state"],
-        "deadline": ["deadline", "due", "due date", "due_date", "delivery", "eta"],
+        "deadline": ["deadline", "due", "due date", "due_date", "delivery", "delivery date", "delivery_date", "eta"],
         "progress": ["progress", "pct", "percent", "%", "completion"],
     },
 }
@@ -84,23 +98,52 @@ def _norm(h: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (h or "").strip().lower()).strip()
 
 
+def _dedupe_headers(headers: List[str]) -> List[str]:
+    seen: Dict[str, int] = {}
+    out: List[str] = []
+    for h in headers:
+        base = (h or "").strip() or f"col_{len(out)}"
+        if base not in seen:
+            seen[base] = 1
+            out.append(base)
+        else:
+            seen[base] += 1
+            out.append(f"{base}_{seen[base]}")
+    return out
+
+
+def _csv_dialect(sample: str) -> str:
+    first = (sample.splitlines() or [""])[0]
+    if ";" in first and "," not in first:
+        return ";"
+    return ","
+
+
 def parse_file(filename: str, content: bytes) -> Tuple[List[str], List[Dict[str, Any]]]:
     if len(content) > MAX_BYTES:
         raise ValueError(f"File too large ({len(content)} bytes). Max is 5 MB.")
     lower = (filename or "").lower()
     if lower.endswith(".csv"):
-        text = content.decode("utf-8-sig")
-        reader = csv.DictReader(io.StringIO(text))
+        try:
+            text = content.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise ValueError("CSV must be UTF-8 encoded.")
+        reader = csv.DictReader(io.StringIO(text), delimiter=_csv_dialect(text))
         if not reader.fieldnames:
             raise ValueError("CSV has no header row.")
-        headers = [h for h in reader.fieldnames if h is not None]
+        headers = _dedupe_headers([h for h in reader.fieldnames if h is not None])
         rows = []
         for r in reader:
-            rows.append({h: (v if v != "" else None) for h, v in r.items() if h is not None})
+            d = {h: (v if v != "" else None) for h, v in r.items() if h is not None}
+            # skip fully-empty rows (same as the xlsx path)
+            if all(v is None for v in d.values()):
+                continue
+            rows.append(d)
             if len(rows) > MAX_ROWS:
                 raise ValueError("File exceeds 20,000 rows.")
         return headers, rows
     if lower.endswith((".xlsx", ".xlsm")):
+        # data_only=True: formulas are NEVER executed, only cached values read.
         wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
         ws = wb.active
         it = ws.iter_rows(values_only=True)
@@ -108,7 +151,10 @@ def parse_file(filename: str, content: bytes) -> Tuple[List[str], List[Dict[str,
             header_row = next(it)
         except StopIteration:
             raise ValueError("Excel sheet is empty.")
-        headers = [str(h).strip() if h is not None else f"col_{i}" for i, h in enumerate(header_row)]
+        headers = _dedupe_headers(
+            [str(h).strip() if h is not None and str(h).strip() != "" else f"col_{i}"
+             for i, h in enumerate(header_row)]
+        )
         rows = []
         for rec in it:
             d: Dict[str, Any] = {}
@@ -225,6 +271,368 @@ def _coerce_datetime(v: Any) -> Optional[datetime]:
         except ValueError:
             continue
     return None
+
+
+def describe_mapping(target: str, headers: List[str],
+                     mapping: Dict[str, Optional[str]],
+                     confidence: Dict[str, float],
+                     source: str) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Per-column proposal details + ambiguity warnings for the review UI.
+
+    Returns (details, warnings) where each detail is
+    {source_column, destination_field, confidence, reason}.
+    """
+    aliases = ALIASES.get(target, {})
+    norm_headers = {h: _norm(h) for h in headers}
+    details: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    claimed_by: Dict[str, str] = {}
+    for h in headers:
+        fld = mapping.get(h)
+        conf = float(confidence.get(h, 0.0))
+        if fld is None:
+            # Was there a field this header wanted but an earlier column took?
+            nh = norm_headers[h]
+            want: Optional[str] = None
+            for field, keys in aliases.items():
+                if any(_norm(k) == nh or (_norm(k) and _norm(k) in nh) for k in keys):
+                    want = field
+                    break
+            if want is not None and want in claimed_by:
+                reason = f"also looks like '{want}' (already mapped from '{claimed_by[want]}')"
+                warnings.append(f"Ambiguous: '{h}' {reason}; left unmapped.")
+            else:
+                reason = "no match — map manually or leave ignored"
+            details.append({"source_column": h, "destination_field": None,
+                            "confidence": 0.0, "reason": reason})
+            continue
+        claimed_by.setdefault(fld, h)
+        if source == "ai":
+            reason = "AI proposal"
+        elif conf >= 1.0:
+            reason = "exact header match"
+        else:
+            reason = "partial match — please verify"
+            warnings.append(f"Verify mapping: '{h}' → '{fld}' (confidence {conf:.2f}).")
+        details.append({"source_column": h, "destination_field": fld,
+                        "confidence": conf, "reason": reason})
+    unmapped = [h for h in headers if not mapping.get(h)]
+    if unmapped:
+        warnings.append(f"{len(unmapped)} column(s) unmapped: {', '.join(unmapped[:8])}"
+                        + ("…" if len(unmapped) > 8 else "") + ". They will be ignored.")
+    return details, warnings
+
+
+def extract_extras(target: str, mapped: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    """Onboarding-added model columns (no Create-schema equivalent).
+
+    Returns (extras, warnings). All values are treated as plain data.
+    """
+    extras: Dict[str, Any] = {}
+    warnings: List[str] = []
+    if target == "employees":
+        code = mapped.get("employee_code")
+        extras["employee_code"] = str(code).strip() or None if code not in (None, "") else None
+        dept = mapped.get("department")
+        extras["department"] = str(dept).strip() or None if dept not in (None, "") else None
+        raw_exp = mapped.get("experience_years")
+        if raw_exp in (None, ""):
+            extras["experience_years"] = None
+        else:
+            n = _coerce_int(raw_exp)
+            if n is None:
+                warnings.append(f"ignoring bad experience_years '{raw_exp}'")
+                extras["experience_years"] = None
+            else:
+                extras["experience_years"] = n
+    elif target == "machines":
+        code = mapped.get("machine_code")
+        extras["machine_code"] = str(code).strip().upper() or None if code not in (None, "") else None
+        dept = mapped.get("department")
+        extras["department"] = str(dept).strip() or None if dept not in (None, "") else None
+        crit = mapped.get("criticality")
+        extras["criticality"] = str(crit).strip().upper() or None if crit not in (None, "") else None
+    return extras, warnings
+
+
+def build_import_row(target: str, mapped: Dict[str, Any]) -> Tuple[Optional[Dict[str, Any]], Optional[str], List[str]]:
+    """Coerce + validate one mapped row. Returns (model_kwargs, error, warnings).
+
+    model_kwargs are ready for Model(**kwargs); error is a human message.
+    Rejects empty natural keys and uncoercible numerics that the schemas
+    would otherwise silently default.
+    """
+    if target == "orders":
+        if not str(mapped.get("order_number") or "").strip():
+            return None, "missing order_number", []
+        raw_qty = mapped.get("quantity")
+        if raw_qty not in (None, "") and _coerce_int(raw_qty) is None:
+            return None, f"bad quantity: '{raw_qty}'", []
+        raw_prog = mapped.get("progress")
+        if raw_prog not in (None, "") and _coerce_number(raw_prog) is None:
+            return None, f"bad progress: '{raw_prog}'", []
+    elif target == "machines":
+        if not str(mapped.get("name") or "").strip():
+            return None, "missing machine name", []
+    elif target == "employees":
+        if not str(mapped.get("name") or "").strip():
+            return None, "missing employee name", []
+        if not str(mapped.get("role") or "").strip():
+            return None, f"missing role for '{str(mapped.get('name') or '').strip()}'", []
+    obj, err = build_validated_row(target, mapped)
+    if err or obj is None:
+        return None, err or "validation failed", []
+    kwargs: Dict[str, Any] = dict(obj.model_dump())
+    warnings: List[str] = []
+    if target in EXTRA_FIELDS:
+        extras, w = extract_extras(target, mapped)
+        kwargs.update(extras)
+        warnings.extend(w)
+    return kwargs, None, warnings
+
+
+def _machine_code_of(name: Optional[str], explicit: Optional[Any]) -> Optional[str]:
+    if explicit not in (None, ""):
+        return str(explicit).strip().upper() or None
+    m = re.match(r"^(M-\d{3})", (name or "").strip(), re.IGNORECASE)
+    return m.group(1).upper() if m else None
+
+
+def load_import_context(db, target: str) -> Dict[str, Any]:
+    """Scoped read-only lookups for duplicate detection + machine resolution.
+
+    All queries go through the caller's scoped session, so another company's
+    rows are invisible here exactly as in every other ORM read.
+    """
+    from backend.models.models import Employee, Machine, Order
+    ctx: Dict[str, Any] = {"machines": [], "code_to_id": {}, "name_to_id": {},
+                           "orders": set(), "machine_names": set(), "machine_codes": set(),
+                           "employees": set(), "employee_codes": set()}
+    machines = db.query(Machine).all()
+    ctx["machines"] = machines
+    for m in machines:
+        ctx["name_to_id"][(m.name or "").strip().lower()] = m.id
+        code = (getattr(m, "machine_code", None) or "").strip().upper()
+        if code:
+            ctx["code_to_id"][code] = m.id
+        pm = re.match(r"^(M-\d{3})", (m.name or "").strip(), re.IGNORECASE)
+        if pm:
+            ctx["code_to_id"].setdefault(pm.group(1).upper(), m.id)
+    if target == "orders":
+        ctx["orders"] = {r[0] for r in db.query(Order.order_number).all()}
+    elif target == "machines":
+        ctx["machine_names"] = {m.name for m in machines}
+        ctx["machine_codes"] = set(ctx["code_to_id"])
+    elif target == "employees":
+        ctx["employees"] = {(e.name, e.role) for e in db.query(Employee.name, Employee.role).all()}
+        ctx["employee_codes"] = {(e.employee_code or "").strip() for e in
+                                 db.query(Employee.employee_code).all()
+                                 if (e.employee_code or "").strip()}
+    return ctx
+
+
+def resolve_import_machine_id(mapped: Dict[str, Any], ctx: Dict[str, Any]) -> Tuple[Any, Optional[str]]:
+    """Resolve a telemetry row's machine. Returns (uuid|None, error|None)."""
+    raw = mapped.get("machine_code", mapped.get("machine_id"))
+    if raw in (None, ""):
+        return None, "missing machine reference (machine_code)"
+    s = raw.strip() if isinstance(raw, str) else str(raw)
+    su = s.upper()
+    if su in ctx["code_to_id"]:
+        return ctx["code_to_id"][su], None
+    m = re.match(r"^(M-\d{3})", s.strip(), re.IGNORECASE)
+    if m and m.group(1).upper() in ctx["code_to_id"]:
+        return ctx["code_to_id"][m.group(1).upper()], None
+    if s.strip().lower() in ctx["name_to_id"]:
+        return ctx["name_to_id"][s.strip().lower()], None
+    try:
+        uid = UUID(s)
+    except (ValueError, AttributeError):
+        return None, f"unknown machine '{s}'"
+    # A UUID string still has to belong to this factory's machines.
+    if uid in set(ctx["name_to_id"].values()) or uid in set(ctx["code_to_id"].values()):
+        return uid, None
+    known = {m.id for m in ctx["machines"]}
+    if uid in known:
+        return uid, None
+    return None, f"unknown machine '{s}'"
+
+
+def prepare_import_rows(target: str, rows: List[Dict[str, Any]],
+                        confirmed: Dict[str, Optional[str]],
+                        ctx: Dict[str, Any]) -> Tuple[List[Tuple[int, Dict[str, Any]]],
+                                                     List[Dict[str, Any]],
+                                                     List[Dict[str, Any]], List[str]]:
+    """Validate every row in memory. No database writes.
+
+    Returns (valid, invalid, duplicates, warnings):
+    - valid: [(excel_row_number, model_kwargs)]
+    - invalid: [{row, error}]
+    - duplicates: [{row, key}]
+    """
+    valid: List[Tuple[int, Dict[str, Any]]] = []
+    invalid: List[Dict[str, Any]] = []
+    duplicates: List[Dict[str, Any]] = []
+    warnings: List[str] = []
+    seen_orders = set()
+    seen_machine_names = set()
+    seen_machine_codes = set()
+    seen_employees = set()
+    seen_employee_codes = set()
+
+    for offset, raw_row in enumerate(rows):
+        idx = offset + 2  # 1-based + header row
+        mapped = {fld: raw_row.get(src) for src, fld in confirmed.items() if fld}
+        for w in extract_extras(target, mapped)[1]:
+            warnings.append(f"Row {idx}: {w}")
+        if target == "telemetry" and mapped.get("machine_id") in (None, ""):
+            mid, err = resolve_import_machine_id(mapped, ctx)
+            if err:
+                invalid.append({"row": idx, "error": err})
+                continue
+            mapped["machine_id"] = mid
+        elif target == "telemetry":
+            try:
+                UUID(str(mapped["machine_id"]))
+            except (ValueError, AttributeError):
+                mid, err = resolve_import_machine_id({"machine_code": mapped["machine_id"]}, ctx)
+                if err:
+                    invalid.append({"row": idx, "error": err})
+                    continue
+                mapped["machine_id"] = mid
+            else:
+                uid = UUID(str(mapped["machine_id"]))
+                known = {m.id for m in ctx["machines"]}
+                if uid not in known:
+                    invalid.append({"row": idx, "error": f"unknown machine '{mapped['machine_id']}'"})
+                    continue
+        kwargs, err, _w = build_import_row(target, mapped)
+        if err or kwargs is None:
+            invalid.append({"row": idx, "error": err or "validation failed"})
+            continue
+        if target == "orders":
+            key = kwargs["order_number"]
+            if key in ctx["orders"] or key in seen_orders:
+                duplicates.append({"row": idx, "key": key})
+                continue
+            seen_orders.add(key)
+        elif target == "machines":
+            code = _machine_code_of(kwargs.get("name"), kwargs.get("machine_code"))
+            if kwargs.get("name") in ctx["machine_names"] or kwargs.get("name") in seen_machine_names \
+                    or (code and (code in ctx["machine_codes"] or code in seen_machine_codes)):
+                duplicates.append({"row": idx, "key": kwargs.get("name")})
+                continue
+            seen_machine_names.add(kwargs.get("name"))
+            if code:
+                seen_machine_codes.add(code)
+        elif target == "employees":
+            ecode = (kwargs.get("employee_code") or "").strip() if kwargs.get("employee_code") else ""
+            ekey = (kwargs.get("name"), kwargs.get("role"))
+            if (ecode and (ecode in ctx["employee_codes"] or ecode in seen_employee_codes)) \
+                    or (ekey in ctx["employees"] or ekey in seen_employees):
+                duplicates.append({"row": idx, "key": ecode or f"{ekey[0]} / {ekey[1]}"})
+                continue
+            seen_employees.add(ekey)
+            if ecode:
+                seen_employee_codes.add(ecode)
+        # telemetry: no dedup — historical rows insert as-is (existing behavior)
+        valid.append((idx, kwargs))
+    return valid, invalid, duplicates, warnings
+
+
+def _jsonable(value: Any) -> Any:
+    from datetime import date
+    if isinstance(value, UUID):
+        return str(value)
+    if isinstance(value, (datetime, date)):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    if isinstance(value, dict):
+        return {k: _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
+def _require_import_scope(db) -> None:
+    from backend.db.scoping import SCOPE_KEY
+    try:
+        scope = db.info.get(SCOPE_KEY)
+    except Exception:
+        scope = None
+    if not scope:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="No active factory. Send the X-Factory-Id header.")
+
+
+def run_import_preview(db, target: str, rows: List[Dict[str, Any]],
+                       confirmed: Dict[str, Optional[str]],
+                       max_examples: int = 25) -> Dict[str, Any]:
+    """Validate + classify every row. Reads only — never writes."""
+    _require_import_scope(db)
+    ctx = load_import_context(db, target)
+    valid, invalid, duplicates, warnings = prepare_import_rows(target, rows, confirmed, ctx)
+    return {
+        "target": target,
+        "row_count": len(rows),
+        "valid_count": len(valid),
+        "invalid_count": len(invalid),
+        "duplicate_count": len(duplicates),
+        "valid_rows": [_jsonable(kw) for _, kw in valid[:max_examples]],
+        "invalid_rows": invalid[:20],
+        "duplicate_rows": duplicates[:20],
+        "warnings": warnings[:20],
+    }
+
+
+def run_import_confirm(db, target: str, rows: List[Dict[str, Any]],
+                       confirmed: Dict[str, Optional[str]]) -> Dict[str, Any]:
+    """Validate everything, then insert in ONE transaction. Nothing on failure.
+
+    Row-level invalid/duplicates are skipped + reported; only a commit-level
+    database error rolls back the whole batch (inserted = 0).
+    """
+    _require_import_scope(db)
+    from backend.models.models import Employee, Machine, MachineTelemetry, Order
+    ctx = load_import_context(db, target)
+    valid, invalid, duplicates, warnings = prepare_import_rows(target, rows, confirmed, ctx)
+    errors: List[Dict[str, Any]] = list(invalid)
+    if not valid:
+        return {
+            "target": target,
+            "inserted": 0, "imported_count": 0,
+            "skipped_duplicates": len(duplicates), "skipped_count": len(duplicates),
+            "failed": len(invalid), "errors": errors[:20], "warnings": warnings[:20],
+            "note": "Telemetry imports never auto-create incidents (historical rows)."
+                    if target == "telemetry" else None,
+        }
+    models = {"orders": Order, "machines": Machine,
+              "employees": Employee, "telemetry": MachineTelemetry}
+    model = models[target]
+    try:
+        for _, kwargs in valid:
+            db.add(model(**kwargs))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        errors = errors + [{"row": "commit", "error": str(e)}]
+        return {
+            "target": target,
+            "inserted": 0, "imported_count": 0,
+            "skipped_duplicates": len(duplicates), "skipped_count": len(duplicates),
+            "failed": len(valid) + len(invalid), "errors": errors[:20], "warnings": warnings[:20],
+            "note": "Commit failed — nothing was written.",
+        }
+    return {
+        "target": target,
+        "inserted": len(valid), "imported_count": len(valid),
+        "skipped_duplicates": len(duplicates), "skipped_count": len(duplicates),
+        "failed": len(invalid), "errors": errors[:20], "warnings": warnings[:20],
+        "note": "Telemetry imports never auto-create incidents (historical rows)."
+                if target == "telemetry" else None,
+    }
 
 
 def _coerce_json_dict(v: Any) -> Optional[Dict[str, Any]]:

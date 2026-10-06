@@ -16,6 +16,13 @@ async function request(path, { timeout = 30000, method = 'GET', body } = {}) {
   try {
     const headers = body !== undefined ? { 'Content-Type': 'application/json' } : {};
     if (token) headers.Authorization = `Bearer ${token}`;
+    // Part 9: attach the selected company's id so the backend scopes every
+    // read/write to that factory. Absent until a company is chosen.
+    try {
+      const mod = await import('./factory');
+      const fid = mod.getSelectedFactoryId();
+      if (fid) headers['X-Factory-Id'] = fid;
+    } catch { /* factory module unavailable in tests */ }
     const res = await fetch(`${API_BASE}${path}`, {
       signal: ctrl.signal,
       method,
@@ -74,6 +81,7 @@ export const api = {
   createProduction: (data) => request('/api/production', { method: 'POST', body: data }),
   updateProduction: (id, data) => request(`/api/production/${id}`, { method: 'PUT', body: data }),
   deleteProduction: (id) => request(`/api/production/${id}`, { method: 'DELETE' }),
+  whatIf: (scenario) => request('/api/what-if/simulate', { method: 'POST', body: { scenario } }),
   incidents: () => request('/api/incidents'),
   incident: (id) => request(`/api/incidents/${id}`),
   createIncident: (data) => request('/api/incidents', { method: 'POST', body: data }),
@@ -101,6 +109,17 @@ export const api = {
     const rows = await request(`/api/telemetry/${machineId}?limit=1`);
     return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
   },
+  // Multi-company / factory registry (Part 1 + 8).
+  factories: () => request('/api/factories'),
+  createFactory: (data) => request('/api/factories', { method: 'POST', body: data }),
+  factory: (id) => request(`/api/factories/${id}`),
+  // 8-step onboarding (Part 3 + 4 + 5). All scoped by X-Factory-Id.
+  onboardingState: () => request('/api/onboarding/state'),
+  saveOnboardingSection: (section, body) => request(`/api/onboarding/${section}`, { method: 'PUT', body }),
+  onboardingNotAvailable: (section) => request(`/api/onboarding/${section}`, { method: 'PUT', body: { mode: 'not_available' } }),
+  useDefaultThresholds: () => request('/api/onboarding/thresholds/use-defaults', { method: 'POST' }),
+  useDefaultAiPreferences: () => request('/api/onboarding/ai-preferences/use-defaults', { method: 'POST' }),
+  completeOnboarding: () => request('/api/onboarding/complete', { method: 'POST' }),
   // Factory profile / onboarding (Phase A-B).
   profile: () => request('/api/profile'),
   presetProfile: () => request('/api/profile/preset'),
@@ -110,12 +129,15 @@ export const api = {
   // CSV/Excel import (Phase C) — multipart, separate from JSON request().
   analyzeImport: async (target, file) => {
     const { accessToken } = await import('./auth');
+    const { getSelectedFactoryId } = await import('./factory');
     const fd = new FormData();
     fd.append('target', target);
     fd.append('file', file);
     const headers = {};
     const t = accessToken();
     if (t) headers.Authorization = `Bearer ${t}`;
+    const fid = getSelectedFactoryId();
+    if (fid) headers['X-Factory-Id'] = fid;
     const res = await fetch(`${API_BASE}/api/import/analyze`, { method: 'POST', headers, body: fd });
     if (!res.ok) {
       let detail = '';
@@ -124,8 +146,9 @@ export const api = {
     }
     return res.json();
   },
-  commitImport: async (target, file, mapping) => {
+  previewImport: async (target, file, mapping) => {
     const { accessToken } = await import('./auth');
+    const { getSelectedFactoryId } = await import('./factory');
     const fd = new FormData();
     fd.append('target', target);
     fd.append('mapping', JSON.stringify(mapping));
@@ -133,6 +156,48 @@ export const api = {
     const headers = {};
     const t = accessToken();
     if (t) headers.Authorization = `Bearer ${t}`;
+    const fid = getSelectedFactoryId();
+    if (fid) headers['X-Factory-Id'] = fid;
+    const res = await fetch(`${API_BASE}/api/import/preview`, { method: 'POST', headers, body: fd });
+    if (!res.ok) {
+      let detail = '';
+      try { const j = await res.json(); detail = j.detail ? `: ${JSON.stringify(j.detail)}` : ''; } catch { /* ignore */ }
+      throw new Error(`API ${res.status} on /api/import/preview${detail}`);
+    }
+    return res.json();
+  },
+  confirmImport: async (target, file, mapping) => {
+    const { accessToken } = await import('./auth');
+    const { getSelectedFactoryId } = await import('./factory');
+    const fd = new FormData();
+    fd.append('target', target);
+    fd.append('mapping', JSON.stringify(mapping));
+    fd.append('file', file);
+    const headers = {};
+    const t = accessToken();
+    if (t) headers.Authorization = `Bearer ${t}`;
+    const fid = getSelectedFactoryId();
+    if (fid) headers['X-Factory-Id'] = fid;
+    const res = await fetch(`${API_BASE}/api/import/confirm`, { method: 'POST', headers, body: fd });
+    if (!res.ok) {
+      let detail = '';
+      try { const j = await res.json(); detail = j.detail ? `: ${JSON.stringify(j.detail)}` : ''; } catch { /* ignore */ }
+      throw new Error(`API ${res.status} on /api/import/confirm${detail}`);
+    }
+    return res.json();
+  },
+  commitImport: async (target, file, mapping) => {
+    const { accessToken } = await import('./auth');
+    const { getSelectedFactoryId } = await import('./factory');
+    const fd = new FormData();
+    fd.append('target', target);
+    fd.append('mapping', JSON.stringify(mapping));
+    fd.append('file', file);
+    const headers = {};
+    const t = accessToken();
+    if (t) headers.Authorization = `Bearer ${t}`;
+    const fid = getSelectedFactoryId();
+    if (fid) headers['X-Factory-Id'] = fid;
     const res = await fetch(`${API_BASE}/api/import/commit`, { method: 'POST', headers, body: fd });
     if (!res.ok) {
       let detail = '';
@@ -175,6 +240,8 @@ export const api = {
   // Weekly reports (Phase 5).
   // Weekly reports (Phase 5).
   weeklyReport: (weekOffset = 0) => request(`/api/reports/weekly?week_offset=${weekOffset}`),
+  monthlyReport: (month) => request(`/api/reports/monthly?month=${encodeURIComponent(month)}`),
+  orderReport: (orderId) => request(`/api/reports/orders/${orderId}`),
   // AI Assistant chat (Phase 6).
   chat: (message, history = []) => request('/api/ai/chat', { method: 'POST', body: { message, history } }),
   // Jarvis assistant (mobile-app Phase 4): tool-loop chat + quick stats.
@@ -184,9 +251,12 @@ export const api = {
   // Uses raw fetch + reader (request() would wait for the full body).
   assistantVoice: async (messages, onEvent) => {
     const { accessToken } = await import('./auth');
+    const { getSelectedFactoryId } = await import('./factory');
     const headers = { 'Content-Type': 'application/json' };
     const t = accessToken();
     if (t) headers.Authorization = `Bearer ${t}`;
+    const fid = getSelectedFactoryId();
+    if (fid) headers['X-Factory-Id'] = fid;
     const res = await fetch(`${API_BASE}/api/ai/assistant/voice`, {
       method: 'POST', headers, body: JSON.stringify({ messages }),
     });

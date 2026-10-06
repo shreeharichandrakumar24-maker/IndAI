@@ -33,6 +33,8 @@ export default function Production({ presetFilter }) {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [deleteError, setDeleteError] = useState('');
+  const [completingId, setCompletingId] = useState(null);
+  const [completeError, setCompleteError] = useState('');
 
   const load = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true);
@@ -135,6 +137,22 @@ export default function Production({ presetFilter }) {
     }
   };
 
+  const handleComplete = async (run) => {
+    // Only the production status is written; task/order follow through the
+    // existing backend propagation. No second request for finished runs.
+    if (['COMPLETED', 'DONE'].includes((run.status || '').toUpperCase())) return;
+    setCompletingId(run.id);
+    setCompleteError('');
+    try {
+      await api.updateProduction(run.id, { status: 'COMPLETED' });
+      await load(true);
+    } catch (err) {
+      setCompleteError(err.message || 'Could not mark DONE');
+    } finally {
+      setCompletingId(null);
+    }
+  };
+
   const handleDelete = async () => {
     if (!confirmDelete) return;
     setDeletingId(confirmDelete.id);
@@ -225,15 +243,23 @@ export default function Production({ presetFilter }) {
               runs={visible}
               loading={loading}
               orderById={orderById}
+              taskById={taskById}
               machineById={machineById}
               onOpen={setDetailsRun}
               onEdit={openEdit}
               onDelete={setConfirmDelete}
               deletingId={deletingId}
+              onComplete={handleComplete}
+              completingId={completingId}
             />
           </div>
         )}
       </section>
+      {completeError && (
+        <div className="alert-banner" role="alert">
+          {completeError}
+        </div>
+      )}
 
       {formOpen && (
         <ProductionForm
