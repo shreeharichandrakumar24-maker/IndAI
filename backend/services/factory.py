@@ -487,7 +487,7 @@ def validate_order_rows(rows: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]
     return cleaned, errors
 
 
-MAINT_STATUSES = {"PENDING", "IN_PROGRESS", "COMPLETED", "DONE", "CANCELLED"}
+MAINT_STATUSES = {"PENDING", "IN_PROGRESS", "COMPLETED", "DONE", "CANCELLED", "RESOLVED", "MONITORING", "OPEN", "CLOSED", "SCHEDULED"}
 
 
 def validate_maintenance_rows(rows: List[Dict[str, Any]], machines_by_code: Dict[str, Machine]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:

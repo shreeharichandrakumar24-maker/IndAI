@@ -51,7 +51,7 @@ const TITLES = {  dashboard: { title: 'Command Center', subtitle: 'Factory-wide 
   memory: { title: 'Factory Memory', subtitle: 'Past events and admin decisions' },
   reports: { title: 'Reports', subtitle: 'Weekly summary for reviews' },
   plans: { title: 'Work Plans', subtitle: 'Draft, assign, dispatch' },
-  simulate: { title: 'What-If', subtitle: 'Project decisions safely' },
+  simulate: { title: 'What-If', subtitle: 'Ask in plain words' },
   users: { title: 'Users', subtitle: 'Accounts and roles' },
   ai: { title: 'AI Assistant', subtitle: 'Administrative intelligence' },
   jarvis: { title: 'Jarvis', subtitle: 'Realtime voice agent' },

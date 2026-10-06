@@ -2,8 +2,9 @@ import { useState } from 'react';
 
 // Form mirrors backend EmployeeCreate exactly:
 //   name*, role*, skills?, certifications?, shift?, status?, availability?
-// skills/certifications are Dict[str, Any] in the API, so the inputs accept
-// a JSON object and validate it before submit. No invented fields.
+// skills/certifications accept a JSON object or array, matching the shapes
+// already stored in the DB (dicts from imports, lists from onboarding).
+// No invented fields.
 const EMPTY = {
   name: '',
   role: '',
@@ -15,7 +16,16 @@ const EMPTY = {
 };
 
 function toJsonText(value) {
-  if (!value || typeof value !== 'object' || Object.keys(value).length === 0) return '';
+  if (!value) return '';
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '';
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '';
+    }
+  }
+  if (typeof value !== 'object' || Object.keys(value).length === 0) return '';
   try {
     return JSON.stringify(value);
   } catch {
@@ -28,8 +38,8 @@ function parseDictField(text, label, errors) {
   if (!t) return undefined;
   try {
     const parsed = JSON.parse(t);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      errors.push(`${label} must be a JSON object, e.g. {"welding": "expert"}`);
+    if (!parsed || typeof parsed !== 'object') {
+      errors.push(`${label} must be a JSON object or array, e.g. {"welding": "expert"} or ["welding", "cnc"]`);
       return undefined;
     }
     return parsed;

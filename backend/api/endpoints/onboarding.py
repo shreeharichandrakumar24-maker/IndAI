@@ -160,6 +160,7 @@ def use_default_thresholds(db: Session = Depends(get_db)):
 
 
 @router.put("/ai-preferences")
+@router.put("/ai_preferences")
 def put_ai_preferences(body: Dict[str, Any], db: Session = Depends(get_db)):
     row = _factory(db)
     data, errors = validate_ai_preferences(body)
@@ -169,6 +170,7 @@ def put_ai_preferences(body: Dict[str, Any], db: Session = Depends(get_db)):
 
 
 @router.post("/ai-preferences/use-defaults")
+@router.post("/ai_preferences/use-defaults")
 def use_default_ai_preferences(db: Session = Depends(get_db)):
     row = _factory(db)
     return {"onboarding": _save_section(db, row, "ai_preferences", dict(DEFAULT_AI_PREFERENCES), SECTION_DEFAULT)}

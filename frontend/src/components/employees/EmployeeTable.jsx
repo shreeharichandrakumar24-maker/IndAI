@@ -8,7 +8,12 @@ function toneForStatus(status) {
 }
 
 function summarizeDict(value) {
-  if (!value || typeof value !== 'object') return '—';
+  if (!value) return '—';
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '—';
+    return value.slice(0, 3).join(', ') + (value.length > 3 ? ` +${value.length - 3}` : '');
+  }
+  if (typeof value !== 'object') return String(value);
   const keys = Object.keys(value);
   if (keys.length === 0) return '—';
   return keys.slice(0, 3).join(', ') + (keys.length > 3 ? ` +${keys.length - 3}` : '');

@@ -24,10 +24,15 @@ export const NAV_ITEMS = [
 
 // Sidebar grouping only. Ids + labels come from NAV_ITEMS above (unchanged),
 // so state-based routing in App.jsx is unaffected.
+//
+// NOTE: 'map', 'simulator', 'plans', 'ai', 'memory', 'users' are intentionally
+// absent here — hidden from the sidebar — but their NAV_ITEMS entries and
+// App.jsx route branches are kept so internal navigation (voice ui.command,
+// focus_order_on_map, show_proposals) keeps working.
 export const NAV_SECTIONS = [
-  { label: 'Overview', ids: ['dashboard', 'map'] },
-  { label: 'Operations', ids: ['orders', 'tasks', 'production', 'employees', 'plans'] },
-  { label: 'Machines & IoT', ids: ['machines', 'iot', 'simulator', 'incidents'] },
-  { label: 'Intelligence', ids: ['jarvis', 'ai', 'simulate', 'memory', 'reports'] },
-  { label: 'Setup', ids: ['profile', 'import', 'users'] },
+  { label: 'Overview', ids: ['dashboard'] },
+  { label: 'Operations', ids: ['orders', 'tasks', 'production', 'employees'] },
+  { label: 'Machines & IoT', ids: ['machines', 'iot', 'incidents'] },
+  { label: 'Intelligence', ids: ['jarvis', 'simulate', 'reports'] },
+  { label: 'Setup', ids: ['profile', 'import'] },
 ];

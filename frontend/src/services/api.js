@@ -293,8 +293,6 @@ export const api = {
   notifyOrderRisk: (orderId) => request(`/api/orders/at-risk/notify?order_id=${orderId}`, { method: 'POST' }),
   // Cross-system root cause (F7).
   rootCause: (scope) => request('/api/ai/root-cause', { method: 'POST', body: scope }),
-  // What-if simulation (F9). Display-only; applying uses normal endpoints.
-  simulate: (payload) => request('/api/ai/simulate', { method: 'POST', body: payload }),
   // Smart Split (mobile-app Phase 3). Proposal only; creation is explicit.
   smartSplit: (orderId) => request('/api/ai/smart-split', { method: 'POST', body: { order_id: orderId } }),
   // Work plans + AI assignment (Phase 7 / F6).
