@@ -35,8 +35,8 @@ class Settings(BaseSettings):
     LIVEKIT_API_SECRET: str = ""
     VOICE_AGENT_NAME: str = "indai-voice"
 
-    # Load from .env file
-    model_config = SettingsConfigDict(env_file="backend/.env", env_file_encoding="utf-8", extra="ignore")
+    # Load from .env file (checks backend/.env and root .env)
+    model_config = SettingsConfigDict(env_file=("backend/.env", ".env"), env_file_encoding="utf-8", extra="ignore")
 
 # Instantiate settings
 settings = Settings()
