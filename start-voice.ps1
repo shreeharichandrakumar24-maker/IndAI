@@ -43,8 +43,13 @@ if ($missing.Count -gt 0) {
   exit 1
 }
 if (-not (Test-Path -LiteralPath $venvPy)) {
-  Write-Output 'Voice agent NOT started: Jarvis venv python not found.'
-  exit 1
+  $sysPy = (Get-Command python -ErrorAction SilentlyContinue).Source
+  if ($sysPy) {
+    $venvPy = $sysPy
+  } else {
+    Write-Output 'Voice agent NOT started: Jarvis venv python not found and python is not in PATH.'
+    exit 1
+  }
 }
 # Kill any previous Jarvis agent process (identified by its own command
 # line) so two agents never share a room and swallow each other's turns.
