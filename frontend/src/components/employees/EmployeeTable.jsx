@@ -8,10 +8,21 @@ function toneForStatus(status) {
 }
 
 function summarizeDict(value) {
-  if (!value || typeof value !== 'object') return '—';
-  const keys = Object.keys(value);
-  if (keys.length === 0) return '—';
-  return keys.slice(0, 3).join(', ') + (keys.length > 3 ? ` +${keys.length - 3}` : '');
+  if (!value) return '—';
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '—';
+    return value.slice(0, 3).map(String).join(', ') + (value.length > 3 ? ` +${value.length - 3}` : '');
+  }
+  if (typeof value === 'object') {
+    if (Array.isArray(value.items)) {
+      if (value.items.length === 0) return '—';
+      return value.items.slice(0, 3).map(String).join(', ') + (value.items.length > 3 ? ` +${value.items.length - 3}` : '');
+    }
+    const keys = Object.keys(value);
+    if (keys.length === 0) return '—';
+    return keys.slice(0, 3).join(', ') + (keys.length > 3 ? ` +${keys.length - 3}` : '');
+  }
+  return String(value);
 }
 
 export default function EmployeeTable({ employees, loading, onEdit, onDelete, deletingId, logins, onWorkerLogin }) {

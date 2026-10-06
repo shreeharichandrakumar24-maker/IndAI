@@ -90,7 +90,7 @@ export default function SuggestDrawer({ task, onClose, onProposed }) {
                         <td className="cell-strong">{e.name} <EmployeeCode employeeId={e.id} /></td>
                         <td className="cell-mono">{e.open_tasks}</td>
                         <td className="muted">{e.shift_fit || '—'}</td>
-                        <td className="muted">{Array.isArray(e.certifications?.items) ? e.certifications.items.join(', ') : '—'}</td>
+                        <td className="muted">{Array.isArray(e.certifications) ? e.certifications.join(', ') : Array.isArray(e.certifications?.items) ? e.certifications.items.join(', ') : '—'}</td>
                       </tr>
                     ))}
                   </tbody>

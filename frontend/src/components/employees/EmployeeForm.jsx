@@ -23,18 +23,16 @@ function toJsonText(value) {
   }
 }
 
-function parseDictField(text, label, errors) {
+function parseField(text, label, errors) {
   const t = (text || '').trim();
   if (!t) return undefined;
   try {
     const parsed = JSON.parse(t);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      errors.push(`${label} must be a JSON object, e.g. {"welding": "expert"}`);
-      return undefined;
-    }
     return parsed;
   } catch {
-    errors.push(`${label} is not valid JSON`);
+    const parts = t.split(',').map((s) => s.trim()).filter(Boolean);
+    if (parts.length > 0) return parts;
+    errors.push(`${label} is not valid JSON or list`);
     return undefined;
   }
 }
@@ -66,8 +64,8 @@ export default function EmployeeForm({ employee, saving, apiError, onSubmit, onC
     const errs = [];
     if (!form.name.trim()) errs.push('Name is required');
     if (!form.role.trim()) errs.push('Role is required');
-    const skills = parseDictField(form.skillsText, 'Skills', errs);
-    const certifications = parseDictField(form.certificationsText, 'Certifications', errs);
+    const skills = parseField(form.skillsText, 'Skills', errs);
+    const certifications = parseField(form.certificationsText, 'Certifications', errs);
     if (errs.length > 0) {
       setErrors(errs);
       return;
