@@ -792,8 +792,27 @@ class IndAITools:
             return line
 
         @function_tool()
-        async def get_reports_summary(context: RunContext) -> str:
-            """This week's report: completed/late orders, incidents, decisions, top failing machine."""
+        async def get_reports_summary(context: RunContext, report_type: str = "weekly", month: str = "") -> str:
+            """Factory performance report summary: weekly operations or monthly aggregate review.
+
+            Args:
+                report_type: 'weekly' (default), 'monthly', or 'order'.
+                month: Optional YYYY-MM month string for monthly report, e.g. '2026-10'.
+            """
+            rtype = (report_type or "weekly").strip().lower()
+            if rtype == "monthly":
+                import datetime as _dt
+                m = month.strip() or _dt.date.today().strftime("%Y-%m")
+                code, d = await rest.api_get("/reports/monthly", params={"month": m})
+                if code != 200 or not isinstance(d, dict):
+                    return "I don't have the monthly report right now."
+                o = d.get("orders") or {}
+                p = d.get("production") or {}
+                maint = d.get("maintenance") or {}
+                return (f"Monthly report for {m}: {o.get('completed_orders', 0)} completed order(s) "
+                        f"and {o.get('active_orders', 0)} active. "
+                        f"{p.get('total_runs', 0)} production run(s) with {p.get('total_units_produced', 0)} unit(s) produced. "
+                        f"Downtime: {maint.get('total_downtime_hours', 0):g} hour(s).")
             code, d = await rest.api_get("/reports/weekly", params={"week_offset": 0})
             if code != 200 or not isinstance(d, dict):
                 return "I don't have the weekly report right now."
@@ -811,6 +830,47 @@ class IndAITools:
             if tops:
                 bits.append(f"Most incidents: {', '.join(tops)}.")
             return " ".join(bits)
+
+        @function_tool()
+        async def simulate_what_if_scenario(context: RunContext, scenario: str) -> str:
+            """Simulate a what-if operational scenario (employee leave or machine downtime) to project impact and alternatives.
+            Strictly read-only; answers in one or two clear spoken sentences.
+
+            Args:
+                scenario: Description of the scenario, e.g. "Arun Kumar is on leave tomorrow" or "machine M-001 is down for 4 hours".
+            """
+            s = (scenario or "").strip()
+            if not s:
+                return "Please describe a scenario to simulate, such as an employee leave or machine downtime."
+            code, data = await rest.api_post("/what-if/simulate", {"scenario": s})
+            if code != 200 or not isinstance(data, dict):
+                msg = "I could not run that simulation right now."
+                if isinstance(data, dict) and data.get("detail"):
+                    msg = str(data["detail"])
+                return msg
+            if data.get("narrative"):
+                return str(data["narrative"]).strip()
+            imp = data.get("impact") or {}
+            sc = data.get("scenario") or {}
+            name = sc.get("entity_name") or "Entity"
+            dur = sc.get("duration_hours") or 0
+            n_tasks = imp.get("affected_tasks", 0)
+            n_orders = imp.get("affected_orders", 0)
+            delay = imp.get("estimated_delay_hours", 0)
+            rec = data.get("recommendation") or ""
+            alts = data.get("alternatives") or []
+            parts = [f"Simulated {dur:g}-hour scenario for {name}:"]
+            if n_tasks or n_orders:
+                parts.append(f"{n_tasks} task(s) across {n_orders} order(s) may be affected with roughly {delay:g} hours of delay.")
+            else:
+                parts.append("no open work is affected.")
+            if alts:
+                alt_names = [a.get("name") for a in alts[:2] if a.get("name")]
+                if alt_names:
+                    parts.append(f"Available alternative(s): {', '.join(alt_names)}.")
+            if rec:
+                parts.append(f"Recommendation: {rec}")
+            return " ".join(parts)
 
         @function_tool()
         async def get_factory_profile_summary(context: RunContext) -> str:
@@ -1037,7 +1097,7 @@ class IndAITools:
             """
             import json as _json
             allowed = {"navigate", "select_machine", "open_order", "open_incident",
-                       "focus_order_on_map", "show_proposals"}
+                       "focus_order_on_map", "show_proposals", "switch_company"}
             if action not in allowed:
                 return f"Unknown screen action {action}."
             payload = {"action": action}
@@ -1078,7 +1138,7 @@ class IndAITools:
                     payload[field] = value
                 target_page = {"select_machine": "machines", "open_order": "orders",
                                "open_incident": "incidents", "focus_order_on_map": "map",
-                               "show_proposals": "ai"}.get(action)
+                               "show_proposals": "ai", "switch_company": "company"}.get(action)
                 if target_page:
                     speak = f"Opening {nav.label_of(target_page)}."
                     inner.remember("page", target_page, nav.label_of(target_page))
@@ -1162,6 +1222,7 @@ class IndAITools:
                 get_task_status, get_recent_actions, get_plan_status,
                 get_worker_progress,
                 get_production_summary, get_iot_status, get_reports_summary,
+                simulate_what_if_scenario,
                 get_factory_profile_summary, get_users_summary,
                 list_pending_proposals,
                 do_assign_task, do_create_order, do_change_task, undo_last,

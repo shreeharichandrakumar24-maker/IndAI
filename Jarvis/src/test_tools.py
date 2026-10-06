@@ -53,6 +53,10 @@ async def _mocked():
                                        "recommendations_approved": 1,
                                        "recommendations_rejected": 0},
                          "top_failing_machines": [{"name": "M-001 CNC Mill", "incidents": 2}]}
+        if path.startswith("/reports/monthly"):
+            return 200, {"orders": {"completed_orders": 12, "active_orders": 4},
+                         "production": {"total_runs": 8, "total_units_produced": 520},
+                         "maintenance": {"total_downtime_hours": 3.5}}
         if path == "/profile":
             return 200, {"industry": "CNC / Mechanical", "status": "APPROVED",
                          "profile": {"machines": [{"code": "M-001", "name": "CNC Mill",
@@ -95,6 +99,13 @@ async def _mocked():
                          "needs_question": None}
         if path == "/ai/commands/undo-last":
             return 200, {"undone": True, "summary": "Undone: Done: Mill brackets - priority URGENT.", "command_id": "c4"}
+        if path == "/what-if/simulate":
+            return 200, {
+                "scenario": {"entity_name": "Arun Kumar", "duration_hours": 4},
+                "impact": {"affected_tasks": 2, "affected_orders": 1, "estimated_delay_hours": 4},
+                "alternatives": [{"name": "Divya Nair"}],
+                "recommendation": "Reassign open tasks to Divya Nair."
+            }
         if path.startswith("/ai/analyze-incident/"):
             return 200, {"root_cause": {"summary": "mock cause", "confidence": 0.8},
                          "recommendations": []}
@@ -108,9 +119,10 @@ async def _mocked():
     for t in tools:
         by_name[getattr(t, "id", getattr(t, "__name__", "?"))] = t
     print("tools:", sorted(by_name))
-    assert len(by_name) == 29, f"expected 29 tools, got {len(by_name)}"
+    assert len(by_name) == 30, f"expected 30 tools, got {len(by_name)}"
     assert "navigate_ui" in by_name
     assert "end_session" in by_name
+    assert "simulate_what_if_scenario" in by_name
     for _c in ("do_assign_task", "do_create_order", "do_change_task", "undo_last"):
         assert _c in by_name, f"missing composite tool {_c}"
 
@@ -312,6 +324,15 @@ async def _mocked():
     r = await by_name["list_pending_proposals"](ctx)
     assert "Schedule repair on M-001" in r, r
     print("PASS list_pending_proposals:", r)
+    r = await by_name["simulate_what_if_scenario"](ctx, scenario="Arun Kumar on leave")
+    assert "Arun Kumar" in r and "Divya Nair" in r, r
+    print("PASS simulate_what_if_scenario:", r[:60])
+    r = await by_name["get_reports_summary"](ctx, report_type="monthly")
+    assert "Monthly report" in r and "12 completed" in r, r
+    print("PASS get_reports_summary monthly:", r[:60])
+    r = await rn["navigate_ui"](ctx, action="switch_company")
+    assert "Opening Company Selection" in r, r
+    print("PASS navigate_ui switch_company:", r)
 
     # ---- scripted multi-turn: phrase -> tool call -> one-sentence reply ----
     from agent import capabilities_line

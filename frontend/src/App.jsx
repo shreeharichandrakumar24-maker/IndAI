@@ -129,6 +129,16 @@ export default function App() {
   // Browser RPC "ui.command" from the voice agent (Part D). Already
   // validated; resolves human refs (codes/numbers) to ids, then navigates.
   const handleUiCommand = useCallback(async (action, args) => {
+    if (action === 'switch_company' || (action === 'navigate' && (args?.page === 'company' || args?.page === 'companies'))) {
+      handleSwitchFactory();
+      return 'ok';
+    }
+    if (action === 'navigate' && args?.page === 'onboarding') {
+      if (activeFactory) {
+        setGate('onboarding');
+        return 'ok';
+      }
+    }
     if (action === 'navigate') {
       if (gateRef.current === 'onboarding') {
         return "Factory setup isn't finished yet; I can't open pages until setup is complete.";
@@ -403,7 +413,7 @@ export default function App() {
         ) : shown === 'memory' ? (
           <Memory />
         ) : shown === 'reports' ? (
-          <Reports />
+          <Reports initialTab={navPayload?.filter} />
         ) : shown === 'plans' ? (
           <Plans onNavigate={navigate} presetFilter={navPayload?.filter} />
         ) : shown === 'simulate' ? (

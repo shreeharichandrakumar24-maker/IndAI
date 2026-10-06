@@ -95,8 +95,15 @@ function currentMonth() {
 
 // Weekly operations summary for reviews and meetings. Deterministic
 // backend aggregates; CSV downloads from the same JSON; print via browser.
-export default function Reports() {
-  const [tab, setTab] = useState('weekly');
+export default function Reports({ initialTab }) {
+  const [tab, setTab] = useState(() => (initialTab && ['weekly', 'monthly', 'order'].includes(String(initialTab).toLowerCase()) ? String(initialTab).toLowerCase() : 'weekly'));
+
+  useEffect(() => {
+    if (initialTab && ['weekly', 'monthly', 'order'].includes(String(initialTab).toLowerCase())) {
+      setTab(String(initialTab).toLowerCase());
+    }
+  }, [initialTab]);
+
   const [offset, setOffset] = useState(0);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);

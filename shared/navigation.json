@@ -173,8 +173,19 @@
       "aliases": {
         "reports": null,
         "report": null,
-        "weekly report": null,
-        "reports page": null
+        "reports page": null,
+        "weekly report": "weekly",
+        "weekly reports": "weekly",
+        "this week's report": "weekly",
+        "monthly report": "monthly",
+        "monthly reports": "monthly",
+        "this month's report": "monthly",
+        "order report": "order",
+        "order reports": "order",
+        "final order report": "order",
+        "final report": "order",
+        "operations report": null,
+        "operations summary": null
       }
     },
     "plans": {
@@ -201,7 +212,11 @@
         "scenarios": null,
         "scenario": null,
         "simulation": null,
-        "what-if page": null
+        "what-if page": null,
+        "what if simulator": null,
+        "what if analysis": null,
+        "impact simulation": null,
+        "scenario simulation": null
       }
     },
     "users": {
@@ -235,9 +250,48 @@
         "voice assistant": null,
         "voice page": null
       }
+    },
+    "company": {
+      "label": "Company Selection",
+      "aliases": {
+        "company": null,
+        "companies": null,
+        "switch company": null,
+        "change company": null,
+        "switch factory": null,
+        "change factory": null,
+        "select company": null,
+        "select factory": null,
+        "choose company": null,
+        "choose factory": null,
+        "company selection": null,
+        "factory selection": null
+      }
+    },
+    "onboarding": {
+      "label": "Factory Onboarding",
+      "aliases": {
+        "onboarding": null,
+        "factory onboarding": null,
+        "onboarding wizard": null,
+        "setup wizard": null,
+        "factory setup": null,
+        "factory wizard": null
+      }
     }
   },
   "page_filters": {
+    "reports": {
+      "weekly": { "speak": "weekly report", "aliases": ["weekly", "weekly report", "this week", "week"] },
+      "monthly": { "speak": "monthly report", "aliases": ["monthly", "monthly report", "this month", "month"] },
+      "order": { "speak": "order report", "aliases": ["order", "order report", "final order", "final order report", "completed order"] }
+    },
+    "import": {
+      "employees": { "speak": "employees import", "aliases": ["employees", "employee", "staff"] },
+      "machines": { "speak": "machines import", "aliases": ["machines", "machine", "equipment"] },
+      "orders": { "speak": "orders import", "aliases": ["orders", "order"] },
+      "telemetry": { "speak": "telemetry import", "aliases": ["telemetry", "sensors", "iot"] }
+    },
     "incidents": {
       "OPEN": { "speak": "open only", "aliases": ["open", "unresolved", "active"] },
       "IN_PROGRESS": { "speak": "in-progress only", "aliases": ["in progress", "working"] },

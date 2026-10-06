@@ -16,7 +16,7 @@
 import { NAV_ITEMS } from '../../config/nav.js';
 
 const ACTIONS = ["navigate", "select_machine", "open_order", "open_incident",
-  "focus_order_on_map", "show_proposals"];
+  "focus_order_on_map", "show_proposals", "switch_company"];
 
 // Top-level fields allowed per action (strict: anything else is rejected).
 const ACTION_FIELDS = {
@@ -26,6 +26,7 @@ const ACTION_FIELDS = {
   open_incident: ["incident"],
   focus_order_on_map: ["order"],
   show_proposals: [],
+  switch_company: [],
 };
 
 // Shared alias data (shared/navigation.json), injected once at startup.
@@ -53,7 +54,10 @@ function looksUnsafe(v) {
 const MAX_LEN = 120;
 
 function navIds() {
-  return new Set(NAV_ITEMS.map((n) => n.id));
+  const ids = new Set(NAV_ITEMS.map((n) => n.id));
+  ids.add("company");
+  ids.add("onboarding");
+  return ids;
 }
 
 function labelOf(id) {

@@ -64,6 +64,11 @@ NAV = [
     ("show pending proposals", {"action": "show_proposals"}),
     ("go to jarvis", {"action": "navigate", "page": "jarvis"}),
     ("take me to production", {"action": "navigate", "page": "production"}),
+    ("switch company", {"action": "switch_company"}),
+    ("change factory", {"action": "switch_company"}),
+    ("show weekly report", {"action": "navigate", "page": "reports", "filter": "weekly"}),
+    ("open monthly report", {"action": "navigate", "page": "reports", "filter": "monthly"}),
+    ("view order reports", {"action": "navigate", "page": "reports", "filter": "order"}),
 ]
 
 for phrase, want in NAV:

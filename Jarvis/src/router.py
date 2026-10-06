@@ -189,6 +189,14 @@ def classify_compound(text: str) -> dict | None:
     t = _norm(text)
     if _DATA_RE.search(t):
         return None
+    if re.search(r"\b(switch|change|choose|select)\s+(the\s+)?(company|factory)\b|\b(company|factory)\s+selection\b", t):
+        return {"action": "switch_company"}
+    if re.search(r"\b(monthly|month)\s+reports?\b", t):
+        return {"action": "navigate", "page": "reports", "filter": "monthly"}
+    if re.search(r"\b(order|final\s+order)\s+reports?\b", t):
+        return {"action": "navigate", "page": "reports", "filter": "order"}
+    if re.search(r"\b(weekly|week)\s+reports?\b", t):
+        return {"action": "navigate", "page": "reports", "filter": "weekly"}
     machine = _machine_code(text)
     order = _order_number(text)
     has_incident = bool(re.search(r"\bincidents?\b", t))
