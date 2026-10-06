@@ -25,14 +25,35 @@ def get_machines(status: Optional[str] = None, health_status: Optional[str] = No
         query = query.filter(Machine.status == status)
     if health_status:
         query = query.filter(Machine.health_status == health_status)
-    return query.all()
+    rows = query.all()
+    if not rows:
+        return []
+    from backend.models.models import FactoryProfile
+    factories = {f.id: (f.name or f.industry or "Default Factory") for f in db.query(FactoryProfile).all()}
+    default_f = db.query(FactoryProfile).filter(FactoryProfile.is_default == True).first()
+    default_name = (default_f.name or default_f.industry) if default_f else "Default Factory"
+
+    result = []
+    for m in rows:
+        item = MachineResponse.model_validate(m)
+        item.company_name = factories.get(m.factory_id) or default_name
+        result.append(item)
+    return result
 
 @router.get("/{machine_id}", response_model=MachineResponse)
 def get_machine(machine_id: UUID, db: Session = Depends(get_db)):
     db_machine = db.query(Machine).filter(Machine.id == machine_id).first()
     if not db_machine:
         raise HTTPException(status_code=404, detail="Machine not found")
-    return db_machine
+    item = MachineResponse.model_validate(db_machine)
+    from backend.models.models import FactoryProfile
+    if db_machine.factory_id:
+        f = db.query(FactoryProfile).filter(FactoryProfile.id == db_machine.factory_id).first()
+        item.company_name = (f.name or f.industry) if f else "Default Factory"
+    else:
+        default_f = db.query(FactoryProfile).filter(FactoryProfile.is_default == True).first()
+        item.company_name = (default_f.name or default_f.industry) if default_f else "Default Factory"
+    return item
 
 @router.get("/{machine_id}/telemetry", response_model=List[TelemetryResponse])
 def get_machine_telemetry(machine_id: UUID, limit: int = 50, db: Session = Depends(get_db)):

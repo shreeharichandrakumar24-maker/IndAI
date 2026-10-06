@@ -165,6 +165,23 @@ body {
   50% { box-shadow: 0 0 18px rgba(239, 68, 68, 0.45); }
 }
 
+.machine-company-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 9999px;
+  padding: 2px 8px;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
 .machine-code {
   font-weight: 800;
   font-size: 1.25rem;
@@ -219,6 +236,25 @@ body {
   margin-bottom: 4px;
 }
 
+.panel-sub-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.panel-company-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 4px;
+  padding: 2px 6px;
+  letter-spacing: 0.5px;
+}
+
 .panel-location {
   font-size: 0.8rem;
   color: #64748b;
@@ -238,6 +274,11 @@ body {
   display: flex;
   justify-content: space-between;
   font-size: 0.85rem;
+}
+
+.info-company-val {
+  font-weight: 600;
+  color: #38bdf8;
 }
 
 .info-label {

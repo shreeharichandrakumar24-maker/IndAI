@@ -9,6 +9,10 @@ class MachineBase(BaseModel):
     location: Optional[str] = None
     status: Optional[str] = "OPERATIONAL"
     health_status: Optional[str] = "GOOD"
+    factory_id: Optional[UUID] = None
+    machine_code: Optional[str] = None
+    department: Optional[str] = None
+    criticality: Optional[str] = None
 
 class MachineCreate(MachineBase):
     pass
@@ -19,9 +23,14 @@ class MachineUpdate(BaseModel):
     location: Optional[str] = None
     status: Optional[str] = None
     health_status: Optional[str] = None
+    factory_id: Optional[UUID] = None
+    machine_code: Optional[str] = None
+    department: Optional[str] = None
+    criticality: Optional[str] = None
 
 class MachineResponse(MachineBase):
     id: UUID
-    created_at: datetime
-    updated_at: datetime
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    company_name: Optional[str] = None
     model_config = ConfigDict(from_attributes=True)

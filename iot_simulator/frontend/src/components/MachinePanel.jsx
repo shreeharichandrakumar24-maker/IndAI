@@ -88,10 +88,17 @@ export default function MachinePanel({ machine, sensorValues, baseline, abnormal
     <div className="machine-panel">
       <div className="panel-header">
         <h2>{machine.name}</h2>
-        <span className="panel-location">{machine.location}</span>
+        <div className="panel-sub-header">
+          <span className="panel-company-badge">🏢 {machine.company_name || 'CNC / Mechanical'}</span>
+          <span className="panel-location">{machine.location}</span>
+        </div>
       </div>
 
       <div className="panel-info">
+        <div className="info-row">
+          <span className="info-label">Company / Factory:</span>
+          <span className="info-company-val">{machine.company_name || 'CNC / Mechanical'}</span>
+        </div>
         <div className="info-row">
           <span className="info-label">Type:</span>
           <span>{machine.machine_type}</span>

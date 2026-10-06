@@ -29,8 +29,11 @@ export default function FactoryFloor({ machines, selectedId, onSelect, effective
                 className={`machine-cell ${isSelected ? 'selected' : ''} health-${health.toLowerCase()}`}
                 onClick={() => onSelect(machine.id)}
                 style={{ borderColor: isSelected ? '#3b82f6' : undefined }}
-                title={`${machine.name} — ${status} / ${health}`}
+                title={`${machine.name} [${machine.company_name || 'Factory'}] — ${status} / ${health}`}
               >
+                <div className="machine-company-tag" title={machine.company_name || 'Factory'}>
+                  {machine.company_name || 'Factory'}
+                </div>
                 <div className="machine-code">{machineCode(machine.name) || machine.name.split(' ')[0]}</div>
                 <div className="machine-indicator" style={{ backgroundColor: HEALTH_COLORS[health] || color }} />
                 <div className="machine-type">{machine.machine_type}</div>

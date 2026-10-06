@@ -3,7 +3,7 @@ import FactoryFloor from './components/FactoryFloor';
 import MachinePanel from './components/MachinePanel';
 import TransmissionStatus from './components/TransmissionStatus';
 import FleetSummary from './components/FleetSummary';
-import { fetchMachines, createMachine, postTelemetry, healthCheck } from './services/api';
+import { fetchMachines, createMachine, postTelemetry, healthCheck, fetchFactories } from './services/api';
 import { DEMO_MACHINES, machineCode } from './config/machines';
 import { assessHealth } from './utils/health';
 import './App.css';
@@ -20,7 +20,18 @@ async function doLoadMachines({ setMachines, setSelectedId, setBackendOnline }) 
   try {
     await healthCheck();
 
-    let existing = await fetchMachines();
+    let [existing, factoriesData] = await Promise.all([
+      fetchMachines(),
+      fetchFactories().catch(() => ({ factories: [] })),
+    ]);
+
+    const factoryMap = {};
+    let defaultFactoryName = 'CNC / Mechanical';
+    (factoriesData?.factories || []).forEach((f) => {
+      factoryMap[f.id] = f.name || f.industry;
+      if (f.is_default && (f.name || f.industry)) defaultFactoryName = f.name || f.industry;
+    });
+
     const haveCodes = new Set(existing.map((m) => machineCode(m.name)));
 
     for (const demo of DEMO_MACHINES) {
@@ -40,8 +51,13 @@ async function doLoadMachines({ setMachines, setSelectedId, setBackendOnline }) 
       const demo = DEMO_MACHINES.find((d) => d.code === machineCode(m.name))
         || DEMO_MACHINES[idx]
         || DEMO_MACHINES[0];
+      const company = m.company_name
+        || (m.factory_id ? factoryMap[m.factory_id] : null)
+        || demo.company_name
+        || defaultFactoryName;
       return {
         ...m,
+        company_name: company,
         baseline: demo.baseline,
         abnormal: demo.abnormal,
         position: demo.position || { row: Math.floor(idx / 4), col: idx % 4 },

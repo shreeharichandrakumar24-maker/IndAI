@@ -31,3 +31,9 @@ export async function healthCheck() {
   if (!res.ok) throw new Error('Backend offline');
   return res.json();
 }
+
+export async function fetchFactories() {
+  const res = await fetch(`${API_BASE}/api/factories`);
+  if (!res.ok) return { factories: [] };
+  return res.json();
+}
