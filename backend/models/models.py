@@ -8,6 +8,10 @@ import uuid
 class Employee(Base):
     __tablename__ = "employees"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008; NULL = legacy/default company
+    employee_code = Column(String(50), nullable=True)       # external id from onboarding CSV
+    department = Column(String(255), nullable=True)
+    experience_years = Column(Integer, nullable=True)
     name = Column(String(255), nullable=False)
     role = Column(String(255), nullable=False)
     skills = Column(JSONB)
@@ -24,6 +28,10 @@ class Employee(Base):
 class Machine(Base):
     __tablename__ = "machines"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
+    machine_code = Column(String(50), nullable=True)
+    department = Column(String(255), nullable=True)
+    criticality = Column(String(50), nullable=True)
     name = Column(String(255), nullable=False)
     machine_type = Column(String(100))
     location = Column(String(255))
@@ -45,6 +53,7 @@ class Machine(Base):
 class Order(Base):
     __tablename__ = "orders"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
     order_number = Column(String(100), unique=True, nullable=False)
     customer_name = Column(String(255))
     product = Column(String(255))
@@ -64,6 +73,7 @@ class Order(Base):
 class Task(Base):
     __tablename__ = "tasks"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
     name = Column(String(255), nullable=False)
     description = Column(Text)
     required_skill = Column(String(255))
@@ -88,6 +98,7 @@ class Task(Base):
 class ProductionRun(Base):
     __tablename__ = "production_runs"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
     order_id = Column(UUID(as_uuid=True), ForeignKey("orders.id", ondelete="CASCADE"))
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"))
     machine_id = Column(UUID(as_uuid=True), ForeignKey("machines.id", ondelete="SET NULL"))
@@ -106,6 +117,7 @@ class ProductionRun(Base):
 class MachineTelemetry(Base):
     __tablename__ = "machine_telemetry"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
     machine_id = Column(UUID(as_uuid=True), ForeignKey("machines.id", ondelete="CASCADE"), nullable=False)
     temperature = Column(Float)
     vibration = Column(Float)
@@ -119,6 +131,7 @@ class MachineTelemetry(Base):
 class Maintenance(Base):
     __tablename__ = "maintenance"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
     machine_id = Column(UUID(as_uuid=True), ForeignKey("machines.id", ondelete="CASCADE"), nullable=False)
     issue = Column(String(255), nullable=False)
     description = Column(Text)
@@ -134,6 +147,7 @@ class Maintenance(Base):
 class Incident(Base):
     __tablename__ = "incidents"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
     machine_id = Column(UUID(as_uuid=True), ForeignKey("machines.id", ondelete="SET NULL"))
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"))
     employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"))
@@ -153,6 +167,7 @@ class Incident(Base):
 class FactoryMemory(Base):
     __tablename__ = "factory_memory"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
     title = Column(String(255), nullable=False)
     event_type = Column(String(100))
     description = Column(Text)
@@ -170,6 +185,11 @@ class FactoryMemory(Base):
 class FactoryProfile(Base):
     __tablename__ = "factory_profile"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Multi-company registry (migration 008). name/onboarding/is_default are
+    # additive; legacy rows get sensible defaults.
+    name = Column(String(255), nullable=True)
+    onboarding = Column(JSONB, nullable=True)   # 8-step wizard state
+    is_default = Column(Boolean, default=False)  # legacy/company-1 marker
     industry = Column(String(255))
     status = Column(String(50), default="DRAFT")
     answers = Column(JSONB)
@@ -181,6 +201,7 @@ class FactoryProfile(Base):
 class AIRecommendation(Base):
     __tablename__ = "ai_recommendations"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
     recommendation_type = Column(String(100), nullable=False)
     entity_type = Column(String(100), nullable=False)
     entity_id = Column(UUID(as_uuid=True), nullable=False)
@@ -218,6 +239,7 @@ class Notification(Base):
 class WorkPlan(Base):
     __tablename__ = "work_plans"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
     title = Column(String(255), nullable=False)
     description = Column(Text)
     payload = Column(JSONB)
@@ -230,6 +252,7 @@ class WorkPlan(Base):
 class PlanAssignment(Base):
     __tablename__ = "plan_assignments"
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    factory_id = Column(UUID(as_uuid=True), nullable=True)  # migration 008
     plan_id = Column(UUID(as_uuid=True), ForeignKey("work_plans.id", ondelete="CASCADE"))
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"))
     employee_id = Column(UUID(as_uuid=True), ForeignKey("employees.id", ondelete="SET NULL"))
@@ -259,3 +282,21 @@ class WorkerCredential(Base):
     last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+# Models that carry a factory_id and must be isolated per selected company
+# (migration 008). See backend/db/scoping.py for the read/insert scoping.
+SCOPED_MODELS = (
+    Employee,
+    Machine,
+    Order,
+    Task,
+    ProductionRun,
+    MachineTelemetry,
+    Maintenance,
+    Incident,
+    FactoryMemory,
+    AIRecommendation,
+    WorkPlan,
+    PlanAssignment,
+)

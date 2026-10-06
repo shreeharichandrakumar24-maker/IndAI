@@ -132,12 +132,86 @@ SELECT
 """)
 
 
+def _factory_where(column: str, include_null: bool) -> str:
+    if include_null:
+        return f"({column} = :fid OR {column} IS NULL)"
+    return f"{column} = :fid"
+
+
+def _snap_statement(db: Session):
+    """Snapshot query with factory isolation matching the ORM scoping.
+
+    No scope -> legacy unfiltered query. Scoped -> every employees /
+    machines / incidents / production_runs / tasks read is restricted to the
+    selected factory; the default/legacy company additionally sees
+    factory_id IS NULL rows, exactly like backend/db/scoping.py.
+    """
+    scope = None
+    try:
+        from backend.db.scoping import get_scope
+        scope = get_scope(db)
+    except Exception:
+        scope = None
+    if not scope:
+        return _SNAP_SQL, {}
+    include_null = bool(scope.get("include_null"))
+    emp_w = _factory_where("employees.factory_id", include_null)
+    mac_w = _factory_where("machines.factory_id", include_null)
+    inc_w = _factory_where("incidents.factory_id", include_null)
+    run_w = _factory_where("production_runs.factory_id", include_null)
+    task_w = _factory_where("tasks.factory_id", include_null)
+    emp_w_e = _factory_where("e.factory_id", include_null)
+    stmt = _sql(f"""
+SELECT
+ (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+     'id', id::text, 'name', name, 'role', role, 'status', status,
+     'availability', availability, 'skills', skills)), '[]'::jsonb)
+  FROM employees WHERE {emp_w}) AS employees,
+ (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+     'id', id::text, 'name', name, 'machine_type', machine_type,
+     'status', status, 'health_status', health_status)), '[]'::jsonb)
+  FROM machines WHERE {mac_w}) AS machines,
+ (SELECT COALESCE(jsonb_object_agg(wc.employee_id::text, wc.employee_code), '{{}}'::jsonb)
+  FROM worker_credentials wc JOIN employees e ON e.id = wc.employee_id
+  WHERE wc.employee_code IS NOT NULL AND {emp_w_e}) AS codes,
+ (SELECT COALESCE(jsonb_agg(DISTINCT machine_id::text), '[]'::jsonb)
+  FROM incidents WHERE status = 'OPEN' AND machine_id IS NOT NULL
+    AND {inc_w}) AS open_inc,
+ (SELECT COALESCE(jsonb_agg(DISTINCT machine_id::text), '[]'::jsonb)
+  FROM production_runs WHERE status IN ('IN_PROGRESS', 'RUNNING')
+    AND machine_id IS NOT NULL AND {run_w}) AS busy,
+ (SELECT COALESCE(jsonb_object_agg(employee_id::text, c), '{{}}'::jsonb)
+  FROM (SELECT employee_id, count(*) AS c FROM tasks
+        WHERE employee_id IS NOT NULL
+          AND status IN ('PENDING', 'IN_PROGRESS', 'PLANNED')
+          AND {task_w}
+        GROUP BY employee_id) s) AS counts,
+ (SELECT jsonb_build_object(
+     'skills', profile->'skills',
+     'ai_preferences', profile->'ai_preferences')
+  FROM factory_profile WHERE status = 'APPROVED' AND id = :fid
+  ORDER BY updated_at DESC LIMIT 1) AS profile,
+ (SELECT COALESCE(jsonb_agg(jsonb_build_object(
+     'name', name, 'employee_id', employee_id::text,
+     'order_id', order_id::text, 'created_at', created_at)), '[]'::jsonb)
+  FROM tasks WHERE created_at >= now() - interval '90 seconds'
+    AND {task_w}) AS recent_tasks
+""")
+    fid = scope.get("uuid")
+    try:
+        fid_param = str(fid)
+    except Exception:
+        fid_param = fid
+    return stmt, {"fid": fid_param}
+
+
 class _Snap:
     """One bulk fetch shared across spans + best picks (single query)."""
     def __init__(self, db: Session):
         row = {}
         try:
-            row = dict(db.execute(_SNAP_SQL).mappings().first() or {})
+            stmt, params = _snap_statement(db)
+            row = dict(db.execute(stmt, params).mappings().first() or {})
         except Exception:
             db.rollback()
         self.employees = [SimpleNamespace(

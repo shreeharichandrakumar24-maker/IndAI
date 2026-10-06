@@ -9,6 +9,19 @@ from backend.schemas.order import OrderCreate, OrderUpdate, OrderResponse
 
 router = APIRouter()
 
+# Order statuses actually used across the app (Orders page active list,
+# tone helpers, closed-order conventions). Blocks garbage strings while
+# never breaking existing flows.
+ORDER_STATUSES = {"PENDING", "PLANNED", "APPROVED", "IN_PROGRESS", "IN REVIEW", "REVIEW",
+                  "COMPLETED", "DONE", "CANCELLED", "DELAYED", "AT_RISK", "BLOCKED"}
+
+
+def _check_status(status):
+    s = (status or "PENDING").strip().upper()
+    if s not in ORDER_STATUSES:
+        raise HTTPException(status_code=422, detail=f"Unknown order status '{status}'. Use one of {sorted(ORDER_STATUSES)}.")
+    return s
+
 RISK_SYSTEM_PROMPT = """You estimate delivery delays for factory orders.
 You receive deterministic risk rows (remaining units, hours to deadline, machine-down flag, current level).
 Rules: use ONLY these numbers; output JSON ONLY {estimates: [{order_id (exact UUID from input), estimated_delay_hours (number or null when on track), reason (one plain sentence)}]}; HIGH risk with a down machine and <72h deadline implies major delay; LOW risk implies null delay. Never invent orders."""
@@ -65,7 +78,9 @@ def notify_at_risk(order_id: UUID, db: Session = Depends(get_db)):
 
 @router.post("", response_model=OrderResponse)
 def create_order(order: OrderCreate, db: Session = Depends(get_db)):
-    db_order = Order(**order.model_dump())
+    data = order.model_dump()
+    data["status"] = _check_status(data.get("status"))
+    db_order = Order(**data)
     db.add(db_order)
     db.commit()
     db.refresh(db_order)
@@ -75,7 +90,7 @@ def create_order(order: OrderCreate, db: Session = Depends(get_db)):
 def get_orders(status: Optional[str] = None, priority: Optional[str] = None, order_by_deadline: bool = False, db: Session = Depends(get_db)):
     query = db.query(Order)
     if status:
-        query = query.filter(Order.status == status)
+        query = query.filter(Order.status == status.strip().upper())
     if priority:
         query = query.filter(Order.priority == priority)
     if order_by_deadline:
@@ -95,6 +110,8 @@ def update_order(order_id: UUID, order: OrderUpdate, db: Session = Depends(get_d
     if not db_order:
         raise HTTPException(status_code=404, detail="Order not found")
     update_data = order.model_dump(exclude_unset=True)
+    if "status" in update_data:
+        update_data["status"] = _check_status(update_data["status"])
     for key, value in update_data.items():
         setattr(db_order, key, value)
     db.commit()

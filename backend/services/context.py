@@ -95,7 +95,10 @@ def build_incident_context(db: Session, incident_id: UUID) -> Dict[str, Any]:
         raise KeyError("Incident not found")
 
     machine = db.query(Machine).filter(Machine.id == inc.machine_id).first() if inc.machine_id else None
-    thresholds = resolve_thresholds(machine.machine_type if machine else None, db)
+    thresholds = resolve_thresholds(
+        machine.machine_type if machine else None, db,
+        machine.factory_id if machine else None,
+    )
 
     readings = []
     if inc.machine_id:
@@ -218,12 +221,12 @@ def build_incident_context(db: Session, incident_id: UUID) -> Dict[str, Any]:
     terminology = {"machine": "machine", "order": "order", "task": "task"}
     try:
         from backend.models.models import FactoryProfile
-        prof = (
-            db.query(FactoryProfile)
-            .filter(FactoryProfile.status == "APPROVED")
-            .order_by(FactoryProfile.updated_at.desc())
-            .first()
-        )
+        q = db.query(FactoryProfile)
+        scope = db.info.get("factory_scope") if hasattr(db, "info") else None
+        if scope:
+            prof = q.filter(FactoryProfile.id == scope["uuid"]).first()
+        else:
+            prof = q.filter(FactoryProfile.status == "APPROVED").order_by(FactoryProfile.updated_at.desc()).first()
         if prof is not None:
             industry = prof.industry
             if isinstance(prof.profile, dict) and isinstance(prof.profile.get("terminology"), dict):

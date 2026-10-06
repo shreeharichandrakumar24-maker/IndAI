@@ -24,7 +24,8 @@ import MiniPlayer from './components/voice/MiniPlayer';
 import { CommandFeedProvider, ToastHost } from './components/voice/CommandFeed';
 import Users from './pages/Users';
 import Login from './pages/Login';
-import Onboarding from './pages/Onboarding';
+import CompanySelect from './pages/CompanySelect';
+import FactoryOnboarding from './pages/FactoryOnboarding';
 import PlaceholderPage from './pages/PlaceholderPage';
 import { useSystemStatus } from './hooks/useSystemStatus';
 import { NAV_ITEMS, NAV_SECTIONS } from './config/nav';
@@ -32,6 +33,7 @@ import './config/navigationData';
 import { validateUiCommand } from './components/voice/uiCommand';
 import { api } from './services/api';
 import { accessToken, signOut } from './services/auth';
+import { clearSelectedFactory, getSelectedFactory, setSelectedFactory } from './services/factory';
 import './App.css';
 
 const TITLES = {  dashboard: { title: 'Command Center', subtitle: 'Factory-wide operations at a glance' },
@@ -209,26 +211,43 @@ export default function App() {
   }, [handleUiCommand]);
   const [session, setSession] = useState(() => (devMode || !!accessToken()));
   const [user, setUser] = useState(null);
-  const [gate, setGate] = useState('checking'); // checking | onboarding | ready
+  // Company/factory gate: select | checking | onboarding | ready
+  const [gate, setGate] = useState('checking');
+  const [activeFactory, setActiveFactory] = useState(() => getSelectedFactory());
   useEffect(() => { gateRef.current = gate; }, [gate]);
   useEffect(() => { userRef.current = user; }, [user]);
   const [authError, setAuthError] = useState('');
   const systemStatus = useSystemStatus();
   const meta = TITLES[route] || { title: NAV_ITEMS.find((n) => n.id === route)?.label || route };
 
-  const checkProfile = async () => {
+  // Decide which screen the selected company opens: the normal dashboard when
+  // its setup is complete, otherwise the 8-step onboarding wizard. With no
+  // company chosen yet, show the selection page.
+  const bootstrapFactory = useCallback(async () => {
+    const selected = getSelectedFactory();
+    if (!selected) {
+      setActiveFactory(null);
+      setGate('select');
+      return;
+    }
+    setActiveFactory(selected);
+    setGate('checking');
     try {
-      const p = await api.profile();
-      if (!p || p.status !== 'APPROVED') setGate('onboarding');
-      else setGate('ready');
+      const f = await api.factory(selected.id);
+      setActiveFactory({ ...selected, ...f });
+      setGate(f.setup_complete ? 'ready' : 'onboarding');
     } catch (err) {
       if (err.code === 'UNAUTHENTICATED') return; // session gate handles it
       const msg = String(err?.message || '');
-      if (msg.includes('404') || msg.includes('No factory profile')) setGate('onboarding');
-      else if (msg.includes('factory_profile table missing') || msg.includes('500')) setGate('onboarding');
-      else setGate('ready'); // backend offline/total failure: don't block existing users
+      if (msg.includes('404')) {
+        clearSelectedFactory();
+        setActiveFactory(null);
+        setGate('select');
+        return;
+      }
+      setGate('ready'); // backend offline: don't block existing users
     }
-  };
+  }, []);
 
   const loadMe = useCallback(async () => {
     setAuthError('');
@@ -236,7 +255,7 @@ export default function App() {
       const me = await api.me();
       setUser(me);
       // Workers use the mobile app, not this web console.
-      if (me.role !== 'WORKER') checkProfile();
+      if (me.role !== 'WORKER') bootstrapFactory();
       return me;
     } catch (err) {
       if (err.code === 'UNAUTHENTICATED') {
@@ -248,7 +267,7 @@ export default function App() {
       }
       return null;
     }
-  }, []);
+  }, [bootstrapFactory]);
 
   useEffect(() => {
     if (session) loadMe();
@@ -267,9 +286,27 @@ export default function App() {
 
   const handleSignOut = () => {
     signOut();
+    clearSelectedFactory();
+    setActiveFactory(null);
     setSession(false);
     setUser(null);
     setRoute('dashboard');
+  };
+
+  // Part 7: return to the company picker. The next selection re-runs the
+  // setup check, so stale company data is never left on screen.
+  const handleSwitchFactory = () => {
+    clearSelectedFactory();
+    setActiveFactory(null);
+    setGate('select');
+    setRoute('dashboard');
+  };
+
+  const handleEnterFactory = (factory) => {
+    setSelectedFactory(factory);
+    setActiveFactory(factory);
+    setRoute('dashboard');
+    setGate(factory.setup_complete ? 'ready' : 'onboarding');
   };
 
   if (!session || (!devMode && !accessToken())) {
@@ -301,9 +338,13 @@ export default function App() {
     );
   }
 
+  if (gate === 'select') {
+    return <CompanySelect onEnter={handleEnterFactory} />;
+  }
+
   if (gate === 'checking') {
     return (
-      <div className="shell"><div className="main"><div className="page"><p className="muted">Loading factory setup…</p></div></div></div>
+      <div className="shell"><div className="main"><div className="page"><p className="muted">Loading company…</p></div></div></div>
     );
   }
 
@@ -311,8 +352,11 @@ export default function App() {
     return (
       <div className="shell">
         <div className="main">
-          <Topbar title="Factory setup" subtitle="First-time configuration" systemStatus={systemStatus} user={user} onSignOut={devMode ? null : handleSignOut} onNavigate={handleNavigate} />
-          <Onboarding onDone={() => { setGate('ready'); setRoute('dashboard'); }} />
+          <Topbar title="Factory setup" subtitle={activeFactory?.name || 'First-time configuration'} systemStatus={systemStatus} user={user} onSignOut={devMode ? null : handleSignOut} onNavigate={handleNavigate} onSwitchFactory={handleSwitchFactory} factoryName={activeFactory?.name} />
+          <FactoryOnboarding
+            factoryName={activeFactory?.name}
+            onDone={() => { setGate('ready'); setRoute('dashboard'); bootstrapFactory(); }}
+          />
         </div>
       </div>
     );
@@ -331,7 +375,7 @@ export default function App() {
         collapsed={collapsed} onToggleCollapse={toggleCollapsed}
         drawerOpen={drawerOpen} onCloseDrawer={() => setDrawerOpen(false)} />
       <div className="main">
-        <Topbar title={(TITLES[shown] || meta).title} subtitle={(TITLES[shown] || meta).subtitle} crumb={crumb} systemStatus={systemStatus} user={user} onSignOut={devMode ? null : handleSignOut} onNavigate={handleNavigate} onMenu={() => setDrawerOpen(true)} theme={theme} onToggleTheme={toggleTheme} />
+        <Topbar title={(TITLES[shown] || meta).title} subtitle={(TITLES[shown] || meta).subtitle} crumb={crumb} systemStatus={systemStatus} user={user} onSignOut={devMode ? null : handleSignOut} onNavigate={handleNavigate} onMenu={() => setDrawerOpen(true)} theme={theme} onToggleTheme={toggleTheme} onSwitchFactory={handleSwitchFactory} factoryName={activeFactory?.name} />
         {shown === 'dashboard' ? (
           <Dashboard />
         ) : shown === 'map' ? (

@@ -25,6 +25,11 @@ export default function Simulate() {
   const [error, setError] = useState('');
   const [applyMsg, setApplyMsg] = useState('');
   const [applying, setApplying] = useState(false);
+  // Natural-language what-if (employee leave / machine downtime, read-only).
+  const [nlText, setNlText] = useState('');
+  const [nlResult, setNlResult] = useState(null);
+  const [nlBusy, setNlBusy] = useState(false);
+  const [nlError, setNlError] = useState('');
 
   useEffect(() => {
     Promise.allSettled([api.orders(), api.tasks(), api.employees().catch(() => []),
@@ -121,6 +126,30 @@ export default function Simulate() {
 
   const changed = (result?.affected_orders || []).filter((r) => r.old_risk !== r.new_risk).length;
 
+  const runNl = async () => {
+    const text = nlText.trim();
+    if (!text) {
+      setNlError('Describe a scenario first.');
+      return;
+    }
+    setNlBusy(true);
+    setNlError('');
+    setNlResult(null);
+    try {
+      setNlResult(await api.whatIf(text));
+    } catch (err) {
+      setNlError(err.message || 'Simulation failed');
+    } finally {
+      setNlBusy(false);
+    }
+  };
+
+  const tryAnother = () => {
+    setNlText('');
+    setNlResult(null);
+    setNlError('');
+  };
+
   return (
     <div className="page">
       <div className="page-head">
@@ -143,10 +172,37 @@ export default function Simulate() {
       <section className="panel">
         <h2>1 · Pick a scenario</h2>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-          {[['DELAY_ORDER', 'Delay an order'], ['RESOLVE_INCIDENT', 'Fix a breakdown'], ['REASSIGN_TASK', 'Move a task']].map(([v, label]) => (
+          {[['DELAY_ORDER', 'Delay an order'], ['RESOLVE_INCIDENT', 'Fix a breakdown'], ['REASSIGN_TASK', 'Move a task'], ['ASK_NL', 'Ask in plain words']].map(([v, label]) => (
             <button key={v} type="button" className={scenario === v ? 'btn-primary' : 'btn-secondary'} onClick={() => { setScenario(v); setResult(null); }}>{label}</button>
           ))}
         </div>
+        {scenario === 'ASK_NL' && (
+          <div>
+            <p className="muted" style={{ marginTop: 0 }}>WHAT IF:</p>
+            <textarea
+              value={nlText}
+              onChange={(e) => setNlText(e.target.value)}
+              placeholder="What if Ravi takes leave for 2 days?"
+              rows={3}
+              style={{ width: '100%', maxWidth: 640 }}
+              disabled={nlBusy}
+            />
+            <p className="muted">
+              Try: • What if Ravi takes leave for 2 days? • What if CNC-01 is unavailable for 4 hours?
+            </p>
+            {nlError && <div className="alert-banner" role="alert">{nlError}</div>}
+            <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+              <button type="button" className="btn-primary" onClick={runNl} disabled={nlBusy}>
+                {nlBusy ? 'Analyzing factory impact…' : 'Simulate Scenario'}
+              </button>
+              {(nlResult || nlText) && (
+                <button type="button" className="btn-secondary" onClick={tryAnother} disabled={nlBusy}>
+                  Try Another Scenario
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {scenario === 'DELAY_ORDER' && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <select value={form.order_id} onChange={(e) => set('order_id', e.target.value)}>
@@ -178,10 +234,47 @@ export default function Simulate() {
             </select>
           </div>
         )}
+        {scenario !== 'ASK_NL' && (
         <div style={{ marginTop: 12 }}>
           <button type="button" className="btn-primary" onClick={run} disabled={busy}>{busy ? 'Projecting…' : 'Run projection →'}</button>
         </div>
+        )}
       </section>
+
+      {scenario === 'ASK_NL' && nlResult && (
+        <section className="panel">
+          <h2>SCENARIO <StatusBadge tone="warn">simulation only — no data changed</StatusBadge></h2>
+          <p>
+            <b>{nlResult.scenario.entity_name}</b>
+            {' '}(simulated {nlResult.scenario.duration_hours}h {nlResult.scenario.reason || nlResult.scenario.type})
+          </p>
+          <p className="muted">{nlResult.summary}</p>
+          <h3 className="section-title">IMPACT</h3>
+          <section className="stat-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            <StatCard label="Affected Tasks" value={nlResult.impact.affected_tasks} sub="open tasks" loading={false} />
+            <StatCard label="Affected Orders" value={nlResult.impact.affected_orders} sub="orders" loading={false} />
+            <StatCard label="Affected Production" value={nlResult.impact.affected_production_runs} sub="runs" loading={false} />
+            <StatCard label="Estimated Delay" value={`${nlResult.impact.estimated_delay_hours}h`} sub="if uncovered" loading={false} />
+          </section>
+          <h3 className="section-title">AFFECTED WORK</h3>
+          {(nlResult.affected_tasks || []).length === 0 && <p className="muted">No open work affected.</p>}
+          <ul>
+            {(nlResult.affected_tasks || []).map((t) => (
+              <li key={t.id}>{t.name} <span className="muted">({t.status}, {Math.round((t.current_progress || 0) * 100)}%)</span></li>
+            ))}
+          </ul>
+          <h3 className="section-title">RECOMMENDATION</h3>
+          <p>{nlResult.recommendation}</p>
+          {(nlResult.alternatives || []).length > 0 && (
+            <ul>
+              {nlResult.alternatives.map((a) => (
+                <li key={a.id}><b>{a.name}</b> <span className="muted">— {a.reason}</span></li>
+              ))}
+            </ul>
+          )}
+          {nlResult.narrative && <p><b>Assistant:</b> {nlResult.narrative}</p>}
+        </section>
+      )}
 
       {result && (
         <>

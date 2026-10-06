@@ -52,7 +52,11 @@ _RANK = {"WORKER": 1, "OPERATOR": 2, "MANAGER": 3}
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
-        # DEV ONLY bypass: everything open, acting as the local dev manager.
+        # Health/root never touch the DB: they must answer even when the
+        # database is down (otherwise one dead DB hangs the whole backend).
+        if path in ("/", "/api/health") or path.startswith("/api/health/"):
+            return await call_next(request)
+        # DEV ONLY bypass: everything else open, acting as the local dev manager.
         from backend.core.config import settings
         if settings.AUTH_DISABLED:
             db = SessionLocal()

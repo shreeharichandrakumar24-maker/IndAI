@@ -62,6 +62,24 @@ export default function ProductionForm({ run, orders, tasks, machines, saving, a
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
+  // Order -> Task hierarchy: the task list follows the selected order, and
+  // picking a task reveals its order (derived the same way the backend
+  // files a run under its task). The current selection always stays visible.
+  const orderNumberById = Object.fromEntries(orders.map((o) => [o.id, o.order_number || String(o.id).slice(0, 8)]));
+  const visibleTasks = form.order_id
+    ? tasks.filter((t) => !t.order_id || t.order_id === form.order_id || t.id === form.task_id)
+    : tasks;
+
+  const handleTaskChange = (e) => {
+    const id = e.target.value;
+    const picked = tasks.find((t) => String(t.id) === String(id));
+    setForm((f) => ({
+      ...f,
+      task_id: id,
+      order_id: picked && picked.order_id ? picked.order_id : f.order_id,
+    }));
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     const errs = [];
@@ -143,11 +161,12 @@ export default function ProductionForm({ run, orders, tasks, machines, saving, a
             </label>
             <label className="form-field">
               <span>Task</span>
-              <select value={form.task_id} onChange={set('task_id')} disabled={saving}>
+              <select value={form.task_id} onChange={handleTaskChange} disabled={saving}>
                 <option value="">Unlinked</option>
-                {tasks.map((t) => (
+                {visibleTasks.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
+                    {t.order_id && orderNumberById[t.order_id] ? ` — ${orderNumberById[t.order_id]}` : ''}
                   </option>
                 ))}
               </select>

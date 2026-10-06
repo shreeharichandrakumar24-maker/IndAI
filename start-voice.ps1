@@ -21,7 +21,7 @@ if (Test-Path -LiteralPath $beFile) {
   Write-Output '[voice] backend/.env not found - token endpoint will 503.'
 }
 $envFile = Join-Path $root 'Jarvis\.env.local'
-$venvPy = Join-Path $root 'Jarvis\venv\Scripts\python.exe'
+$venvPy = Join-Path $root 'Jarvis\.venv\Scripts\python.exe'
 if (-not (Test-Path -LiteralPath $envFile)) {
   Write-Output 'Voice agent NOT started: Jarvis\.env.local is missing.'
   Write-Output 'Copy Jarvis\.env.example to Jarvis\.env.local and fill in'
@@ -61,4 +61,5 @@ try {
 }
 Set-Location (Join-Path $root 'Jarvis')
 Write-Output 'Starting IndAI voice agent (Ctrl+C stops it)...'
+$env:PYTHONPATH = Join-Path $root 'Jarvis\src'
 & $venvPy src\agent.py dev
